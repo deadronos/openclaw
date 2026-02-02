@@ -1,0 +1,28 @@
+FROM node:current-trixie-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    bash \
+    ca-certificates \
+    curl \
+    git \
+    jq \
+    python3 \
+    ripgrep \
+    tini \
+    sudo \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN usermod -d /home/openclaw -l openclaw node
+RUN groupmod -n openclaw node
+RUN mv /home/node /home/openclaw
+RUN chown -R openclaw:openclaw /home/openclaw
+RUN mkdir -p /home/openclaw/workspace
+RUN chown -R openclaw:openclaw /home/openclaw/workspace
+RUN mkdir -p /etc/sudoers.d
+RUN echo "openclaw ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/openclaw
+RUN groupmod -a -U openclaw sudo
+
+CMD ["sleep", "infinity"]
