@@ -1,6 +1,8 @@
 FROM node:current-trixie-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
+ARG UID_BUILD=1000
+ARG GID_BUILD=1000
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
@@ -24,7 +26,7 @@ RUN chown -R openclaw:openclaw /home/openclaw/workspace
 RUN mkdir -p /etc/sudoers.d
 RUN echo "openclaw ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/openclaw
 RUN groupmod -a -U openclaw sudo
-RUN groupmod -g $GID openclaw
-RUN usermod -u $UID openclaw
+RUN groupmod -g "${GID_BUILD}" openclaw
+RUN usermod -u "${UID_BUILD}" openclaw
 
 CMD ["sleep", "infinity"]
