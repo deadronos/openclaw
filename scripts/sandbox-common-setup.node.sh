@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_IMAGE="${BASE_IMAGE:-openclaw-sandbox:trixie-slim}"
-TARGET_IMAGE="${TARGET_IMAGE:-openclaw-sandbox-common:trixie-slim}"
+BASE_IMAGE="${BASE_IMAGE:-openclaw-sandbox-custom:trixie-slim}"
+TARGET_IMAGE="${TARGET_IMAGE:-openclaw-sandbox-common-custom:trixie-slim}"
 PACKAGES="${PACKAGES:-curl wget jq coreutils grep nodejs npm python3 git ca-certificates golang-go rustc cargo unzip pkg-config libasound2-dev build-essential file}"
 INSTALL_PNPM="${INSTALL_PNPM:-1}"
 INSTALL_BUN="${INSTALL_BUN:-1}"
@@ -40,6 +40,7 @@ ENV HOMEBREW_PREFIX="\${BREW_INSTALL_DIR}"
 ENV HOMEBREW_CELLAR="\${BREW_INSTALL_DIR}/Cellar"
 ENV HOMEBREW_REPOSITORY="\${BREW_INSTALL_DIR}/Homebrew"
 ENV PATH="\${BUN_INSTALL_DIR}/bin:\${BREW_INSTALL_DIR}/bin:\${BREW_INSTALL_DIR}/sbin:\${PATH}"
+USER root
 RUN apt-get update \\
   && apt-get install -y --no-install-recommends ${PACKAGES} \\
   && rm -rf /var/lib/apt/lists/*
@@ -63,6 +64,8 @@ fi
 RUN if [ "\${INSTALL_GEMINI}" = "1" ]; then \\
   npm install -g @google/gemini-cli; \\
 fi
+USER openclaw
+WORKDIR /home/openclaw
 EOF
 
 cat <<NOTE

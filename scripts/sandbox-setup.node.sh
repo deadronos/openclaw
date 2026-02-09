@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-IMAGE_NAME="openclaw-sandbox:trixie-slim"
+IMAGE_NAME="openclaw-sandbox-custom:trixie-slim"
 UID_BUILD="${UID:-1000}"
 GID_BUILD="${GID:-1000}"
 

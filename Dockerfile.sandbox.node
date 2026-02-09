@@ -29,4 +29,7 @@ RUN groupmod -a -U openclaw sudo
 RUN groupmod -g "${GID_BUILD}" openclaw
 RUN usermod -u "${UID_BUILD}" openclaw
 
+USER openclaw
+WORKDIR /home/openclaw
+
 CMD ["sleep", "infinity"]
