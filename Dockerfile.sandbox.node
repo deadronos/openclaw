@@ -24,5 +24,7 @@ RUN chown -R openclaw:openclaw /home/openclaw/workspace
 RUN mkdir -p /etc/sudoers.d
 RUN echo "openclaw ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/openclaw
 RUN groupmod -a -U openclaw sudo
+RUN groupmod -g {$GID} openclaw
+RUN usermod -u {$UID} openclaw
 
 CMD ["sleep", "infinity"]
