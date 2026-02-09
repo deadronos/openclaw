@@ -32,7 +32,8 @@ ARG INSTALL_PNPM=1
 ARG INSTALL_BUN=1
 ARG BUN_INSTALL_DIR=/opt/bun
 ARG INSTALL_BREW=1
-ARG INSTALL_CODEX=1
+ARG INSTALL_COPILOT=1
+ARG INSTALL_GEMINI=1
 ARG BREW_INSTALL_DIR=/home/linuxbrew/.linuxbrew
 ENV BUN_INSTALL=\${BUN_INSTALL_DIR}
 ENV HOMEBREW_PREFIX="\${BREW_INSTALL_DIR}"
@@ -56,8 +57,11 @@ RUN if [ "\${INSTALL_BREW}" = "1" ]; then \\
   if [ ! -x "\${BREW_INSTALL_DIR}/bin/brew" ]; then echo "brew install failed"; exit 1; fi; \\
   ln -sf "\${BREW_INSTALL_DIR}/bin/brew" /usr/local/bin/brew; \\
 fi
-RUN if [ "\${INSTALL_CODEX}" = "1" ]; then \\
-  npm install -g @openai/codex; \\
+RUN if [ "\${INSTALL_COPILOT}" = "1" ]; then \\
+  npm install -g @github/copilot; \\
+fi
+RUN if [ "\${INSTALL_GEMINI}" = "1" ]; then \\
+  npm install -g @google/gemini-cli; \\
 fi
 EOF
 
