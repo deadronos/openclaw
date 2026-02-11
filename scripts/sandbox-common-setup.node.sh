@@ -3,7 +3,9 @@ set -euo pipefail
 
 BASE_IMAGE="${BASE_IMAGE:-openclaw-sandbox-custom:trixie-slim}"
 TARGET_IMAGE="${TARGET_IMAGE:-openclaw-sandbox-common-custom:trixie-slim}"
-PACKAGES="${PACKAGES:-curl wget jq coreutils grep nodejs npm python3 git ca-certificates golang-go rustc cargo unzip pkg-config libasound2-dev build-essential file}"
+PACKAGES="${PACKAGES:-curl wget jq coreutils grep nodejs npm python3 git ca-certificates \
+golang-go rustc cargo unzip pkg-config libasound2-dev build-essential file \
+ripgrep procps fd-find openssh-client less locales tzdata mc tree uv}"
 INSTALL_PNPM="${INSTALL_PNPM:-1}"
 INSTALL_BUN="${INSTALL_BUN:-1}"
 BUN_INSTALL_DIR="${BUN_INSTALL_DIR:-/opt/bun}"
