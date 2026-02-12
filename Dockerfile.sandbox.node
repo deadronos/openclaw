@@ -32,7 +32,5 @@ RUN usermod -s /bin/bash openclaw
 
 USER openclaw
 WORKDIR /home/openclaw
-RUN echo 'export PATH="${BUN_INSTALL}/bin:${HOMEBREW_PREFIX}/bin:${HOMEBREW_PREFIX}/sbin:${PATH}"' >> /home/openclaw/.zshrc
-RUN echo 'export PATH="${BUN_INSTALL}/bin:${HOMEBREW_PREFIX}/bin:${HOMEBREW_PREFIX}/sbin:${PATH}"' >> /home/openclaw/.bashrc
 
 CMD ["sleep", "infinity"]

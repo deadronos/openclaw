@@ -71,6 +71,9 @@ WORKDIR /home/openclaw
 
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 RUN /home/openclaw/.local/bin/uv tool install mistral-vibe
+RUN echo 'export PATH="${BUN_INSTALL}/bin:${HOMEBREW_PREFIX}/bin:${HOMEBREW_PREFIX}/sbin:${PATH}"' >> /home/openclaw/.zshrc
+RUN echo 'export PATH="${BUN_INSTALL}/bin:${HOMEBREW_PREFIX}/bin:${HOMEBREW_PREFIX}/sbin:${PATH}"' >> /home/openclaw/.bashrc
+
 
 EOF
 
