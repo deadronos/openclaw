@@ -208,6 +208,7 @@
       "@napi-rs/canvas",
       "@whiskeysockets/baileys",
       "authenticate-pam",
+      "core-js@3.48.0",
       "esbuild",
       "node-llama-cpp",
       "protobufjs",
