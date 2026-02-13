@@ -17,6 +17,24 @@ RUN apt-get update \
     sudo \
   && rm -rf /var/lib/apt/lists/*
 
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    bash \
+    ca-certificates \
+    chromium \
+    curl \
+    fonts-liberation \
+    fonts-noto-color-emoji \
+    git \
+    jq \
+    novnc \
+    python3 \
+    socat \
+    websockify \
+    x11vnc \
+    xvfb \
+  && rm -rf /var/lib/apt/lists/*
+
 RUN usermod -d /home/openclaw -l openclaw node
 RUN groupmod -n openclaw node
 RUN mv /home/node /home/openclaw
@@ -30,7 +48,12 @@ RUN groupmod -g "${GID_BUILD}" openclaw
 RUN usermod -u "${UID_BUILD}" openclaw
 RUN usermod -s /bin/bash openclaw
 
+COPY scripts/sandbox-browser-entrypoint.sh /usr/local/bin/openclaw-sandbox-browser
+RUN chmod +x /usr/local/bin/openclaw-sandbox-browser
+EXPOSE 9222 5900 6080
+
 USER openclaw
 WORKDIR /home/openclaw
 
-CMD ["sleep", "infinity"]
+#CMD ["sleep", "infinity"]
+CMD ["openclaw-sandbox-browser"]
