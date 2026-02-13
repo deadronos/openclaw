@@ -55,5 +55,4 @@ EXPOSE 9222 5900 6080
 USER openclaw
 WORKDIR /home/openclaw
 
-#CMD ["sleep", "infinity"]
-CMD ["openclaw-sandbox-browser"]
+CMD ["/usr/local/bin/openclaw-sandbox-browser"]
