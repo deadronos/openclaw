@@ -44,19 +44,19 @@ RUN if [ "${INSTALL_BREW}" = "1" ]; then \
   ln -sf "${BREW_INSTALL_DIR}/bin/brew" /usr/local/bin/brew; \
 fi
 
-RUN if [ "\${INSTALL_COPILOT}" = "1" ]; then \\
-  npm install -g @github/copilot; \\
+RUN if [ "${INSTALL_COPILOT}" = "1" ]; then \
+  npm install -g @github/copilot; \
 fi
-RUN if [ "\${INSTALL_GEMINI}" = "1" ]; then \\
-  npm install -g @google/gemini-cli; \\
-fi
-
-RUN if [ "\${INSTALL_CODEX}" = "1" ]; then \\
-  npm install -g @openai/codex; \\
+RUN if [ "${INSTALL_GEMINI}" = "1" ]; then \
+  npm install -g @google/gemini-cli; \
 fi
 
-RUN if [ "\${INSTALL_HIMALAYA}" = "1" ]; then \\
-  curl -sSL https://raw.githubusercontent.com/pimalaya/himalaya/master/install.sh | sudo sh; \\
+RUN if [ "${INSTALL_CODEX}" = "1" ]; then \
+  npm install -g @openai/codex; \
+fi
+
+RUN if [ "${INSTALL_HIMALAYA}" = "1" ]; then \
+  curl -sSL https://raw.githubusercontent.com/pimalaya/himalaya/master/install.sh | sudo sh; \
 fi
 
 
