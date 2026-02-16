@@ -218,6 +218,22 @@ describe("Slack native command argument menus", () => {
     });
   });
 
+  it("falls back to postEphemeral with token when respond is unavailable", async () => {
+    await argMenuHandler({
+      ack: vi.fn().mockResolvedValue(undefined),
+      action: { value: "garbage" },
+      body: { user: { id: "U1" }, channel: { id: "C1" } },
+    });
+
+    expect(harness.postEphemeral).toHaveBeenCalledWith(
+      expect.objectContaining({
+        token: "bot-token",
+        channel: "C1",
+        user: "U1",
+      }),
+    );
+  });
+
   it("treats malformed percent-encoding as an invalid button (no throw)", async () => {
     await argMenuHandler({
       ack: vi.fn().mockResolvedValue(undefined),
@@ -236,7 +252,15 @@ describe("Slack native command argument menus", () => {
   });
 });
 
-function createPolicyHarness() {
+function createPolicyHarness(overrides?: {
+  groupPolicy?: "open" | "allowlist";
+  channelsConfig?: Record<string, { allow?: boolean; requireMention?: boolean }>;
+  channelId?: string;
+  channelName?: string;
+  allowFrom?: string[];
+  useAccessGroups?: boolean;
+  resolveChannelName?: () => Promise<{ name?: string; type?: string }>;
+}) {
   const commands = new Map<unknown, (args: unknown) => Promise<void>>();
   const postEphemeral = vi.fn().mockResolvedValue({ ok: true });
   const app = {
@@ -246,21 +270,24 @@ function createPolicyHarness() {
     },
   };
 
+  const channelId = overrides?.channelId ?? "C_UNLISTED";
+  const channelName = overrides?.channelName ?? "unlisted";
+
   const ctx = {
     cfg: { commands: { native: false } },
     runtime: {},
     botToken: "bot-token",
     botUserId: "bot",
     teamId: "T1",
-    allowFrom: ["*"],
+    allowFrom: overrides?.allowFrom ?? ["*"],
     dmEnabled: true,
     dmPolicy: "open",
     groupDmEnabled: false,
     groupDmChannels: [],
     defaultRequireMention: true,
-    groupPolicy: "open",
-    useAccessGroups: true,
-    channelsConfig: undefined,
+    groupPolicy: overrides?.groupPolicy ?? "open",
+    useAccessGroups: overrides?.useAccessGroups ?? true,
+    channelsConfig: overrides?.channelsConfig,
     slashCommand: {
       enabled: true,
       name: "openclaw",
@@ -270,21 +297,14 @@ function createPolicyHarness() {
     textLimit: 4000,
     app,
     isChannelAllowed: () => true,
-    resolveChannelName: async () => ({ name: "unlisted", type: "channel" }),
+    resolveChannelName:
+      overrides?.resolveChannelName ?? (async () => ({ name: channelName, type: "channel" })),
     resolveUserName: async () => ({ name: "Ada" }),
-  } as Record<string, unknown>;
+  } as unknown;
 
   const account = { accountId: "acct", config: { commands: { native: false } } } as unknown;
 
-  return { commands, ctx, account, postEphemeral };
-}
-
-function resetPolicyHarness(harness: ReturnType<typeof createPolicyHarness>) {
-  harness.ctx.allowFrom = ["*"];
-  harness.ctx.groupPolicy = "open";
-  harness.ctx.useAccessGroups = true;
-  harness.ctx.channelsConfig = undefined;
-  harness.ctx.resolveChannelName = async () => ({ name: "unlisted", type: "channel" });
+  return { commands, ctx, account, postEphemeral, channelId, channelName };
 }
 
 async function runSlashHandler(params: {
@@ -322,29 +342,37 @@ async function runSlashHandler(params: {
   return { respond, ack };
 }
 
+function expectChannelBlockedResponse(respond: ReturnType<typeof vi.fn>) {
+  expect(dispatchMock).not.toHaveBeenCalled();
+  expect(respond).toHaveBeenCalledWith({
+    text: "This channel is not allowed.",
+    response_type: "ephemeral",
+  });
+}
+
+function expectUnauthorizedResponse(respond: ReturnType<typeof vi.fn>) {
+  expect(dispatchMock).not.toHaveBeenCalled();
+  expect(respond).toHaveBeenCalledWith({
+    text: "You are not authorized to use this command.",
+    response_type: "ephemeral",
+  });
+}
+
 describe("slack slash commands channel policy", () => {
-  let harness: ReturnType<typeof createPolicyHarness>;
-
-  beforeAll(async () => {
-    harness = createPolicyHarness();
-    await registerCommands(harness.ctx, harness.account);
-  });
-
-  beforeEach(() => {
-    harness.postEphemeral.mockClear();
-    resetPolicyHarness(harness);
-  });
-
   it("allows unlisted channels when groupPolicy is open", async () => {
-    harness.ctx.groupPolicy = "open";
-    harness.ctx.channelsConfig = { C_LISTED: { requireMention: true } };
-    harness.ctx.resolveChannelName = async () => ({ name: "unlisted", type: "channel" });
+    const { commands, ctx, account, channelId, channelName } = createPolicyHarness({
+      groupPolicy: "open",
+      channelsConfig: { C_LISTED: { requireMention: true } },
+      channelId: "C_UNLISTED",
+      channelName: "unlisted",
+    });
+    await registerCommands(ctx, account);
 
     const { respond } = await runSlashHandler({
-      commands: harness.commands,
+      commands,
       command: {
-        channel_id: "C_UNLISTED",
-        channel_name: "unlisted",
+        channel_id: channelId,
+        channel_name: channelName,
       },
     });
 
@@ -355,65 +383,78 @@ describe("slack slash commands channel policy", () => {
   });
 
   it("blocks explicitly denied channels when groupPolicy is open", async () => {
-    harness.ctx.groupPolicy = "open";
-    harness.ctx.channelsConfig = { C_DENIED: { allow: false } };
-    harness.ctx.resolveChannelName = async () => ({ name: "denied", type: "channel" });
+    const { commands, ctx, account, channelId, channelName } = createPolicyHarness({
+      groupPolicy: "open",
+      channelsConfig: { C_DENIED: { allow: false } },
+      channelId: "C_DENIED",
+      channelName: "denied",
+    });
+    await registerCommands(ctx, account);
 
     const { respond } = await runSlashHandler({
-      commands: harness.commands,
+      commands,
       command: {
-        channel_id: "C_DENIED",
-        channel_name: "denied",
+        channel_id: channelId,
+        channel_name: channelName,
       },
     });
 
-    expect(dispatchMock).not.toHaveBeenCalled();
-    expect(respond).toHaveBeenCalledWith({
-      text: "This channel is not allowed.",
-      response_type: "ephemeral",
-    });
+    expectChannelBlockedResponse(respond);
   });
 
   it("blocks unlisted channels when groupPolicy is allowlist", async () => {
-    harness.ctx.groupPolicy = "allowlist";
-    harness.ctx.channelsConfig = { C_LISTED: { requireMention: true } };
-    harness.ctx.resolveChannelName = async () => ({ name: "unlisted", type: "channel" });
+    const { commands, ctx, account, channelId, channelName } = createPolicyHarness({
+      groupPolicy: "allowlist",
+      channelsConfig: { C_LISTED: { requireMention: true } },
+      channelId: "C_UNLISTED",
+      channelName: "unlisted",
+    });
+    await registerCommands(ctx, account);
 
     const { respond } = await runSlashHandler({
-      commands: harness.commands,
+      commands,
       command: {
-        channel_id: "C_UNLISTED",
-        channel_name: "unlisted",
+        channel_id: channelId,
+        channel_name: channelName,
       },
     });
 
-    expect(dispatchMock).not.toHaveBeenCalled();
-    expect(respond).toHaveBeenCalledWith({
-      text: "This channel is not allowed.",
-      response_type: "ephemeral",
-    });
+    expectChannelBlockedResponse(respond);
   });
 });
 
 describe("slack slash commands access groups", () => {
-  let harness: ReturnType<typeof createPolicyHarness>;
+  it("fails closed when channel type lookup returns empty for channels", async () => {
+    const { commands, ctx, account, channelId, channelName } = createPolicyHarness({
+      allowFrom: [],
+      channelId: "C_UNKNOWN",
+      channelName: "unknown",
+      resolveChannelName: async () => ({}),
+    });
+    await registerCommands(ctx, account);
 
-  beforeAll(async () => {
-    harness = createPolicyHarness();
-    await registerCommands(harness.ctx, harness.account);
-  });
+    const { respond } = await runSlashHandler({
+      commands,
+      command: {
+        channel_id: channelId,
+        channel_name: channelName,
+      },
+    });
 
-  beforeEach(() => {
-    harness.postEphemeral.mockClear();
-    resetPolicyHarness(harness);
+    expectUnauthorizedResponse(respond);
   });
 
   it("still treats D-prefixed channel ids as DMs when lookup fails", async () => {
-    harness.ctx.allowFrom = [];
-    harness.ctx.resolveChannelName = async () => ({});
+    const { commands, ctx, account } = createPolicyHarness({
+      allowFrom: [],
+      channelId: "D123",
+      channelName: "notdirectmessage",
+      resolveChannelName: async () => ({}),
+    });
+    await registerCommands(ctx, account);
 
     const { respond } = await runSlashHandler({
-      commands: harness.commands,
+      commands,
       command: {
         channel_id: "D123",
         channel_name: "notdirectmessage",
@@ -430,22 +471,49 @@ describe("slack slash commands access groups", () => {
     expect(dispatchArg?.ctx?.CommandAuthorized).toBe(false);
   });
 
-  it("enforces access-group gating when lookup fails for private channels", async () => {
-    harness.ctx.allowFrom = [];
-    harness.ctx.resolveChannelName = async () => ({});
+  it("computes CommandAuthorized for DM slash commands when dmPolicy is open", async () => {
+    const { commands, ctx, account } = createPolicyHarness({
+      allowFrom: ["U_OWNER"],
+      channelId: "D999",
+      channelName: "directmessage",
+      resolveChannelName: async () => ({ name: "directmessage", type: "im" }),
+    });
+    await registerCommands(ctx, account);
 
-    const { respond } = await runSlashHandler({
-      commands: harness.commands,
+    await runSlashHandler({
+      commands,
       command: {
-        channel_id: "G123",
-        channel_name: "private",
+        user_id: "U_ATTACKER",
+        user_name: "Mallory",
+        channel_id: "D999",
+        channel_name: "directmessage",
       },
     });
 
-    expect(dispatchMock).not.toHaveBeenCalled();
-    expect(respond).toHaveBeenCalledWith({
-      text: "You are not authorized to use this command.",
-      response_type: "ephemeral",
+    expect(dispatchMock).toHaveBeenCalledTimes(1);
+    const dispatchArg = dispatchMock.mock.calls[0]?.[0] as {
+      ctx?: { CommandAuthorized?: boolean };
+    };
+    expect(dispatchArg?.ctx?.CommandAuthorized).toBe(false);
+  });
+
+  it("enforces access-group gating when lookup fails for private channels", async () => {
+    const { commands, ctx, account, channelId, channelName } = createPolicyHarness({
+      allowFrom: [],
+      channelId: "G123",
+      channelName: "private",
+      resolveChannelName: async () => ({}),
     });
+    await registerCommands(ctx, account);
+
+    const { respond } = await runSlashHandler({
+      commands,
+      command: {
+        channel_id: channelId,
+        channel_name: channelName,
+      },
+    });
+
+    expectUnauthorizedResponse(respond);
   });
 });
