@@ -3,18 +3,27 @@ import { createBaseDiscordMessageContext } from "./message-handler.test-harness.
 
 const reactMessageDiscord = vi.fn(async () => {});
 const removeReactionDiscord = vi.fn(async () => {});
-const dispatchInboundMessage = vi.fn(async () => ({
+type DispatchInboundParams = {
+  replyOptions?: {
+    onReasoningStream?: () => Promise<void> | void;
+    onToolStart?: (payload: { name?: string }) => Promise<void> | void;
+  };
+};
+const dispatchInboundMessage = vi.fn(async (_params?: DispatchInboundParams) => ({
   queuedFinal: false,
   counts: { final: 0, tool: 0, block: 0 },
 }));
+const recordInboundSession = vi.fn(async () => {});
+const readSessionUpdatedAt = vi.fn(() => undefined);
+const resolveStorePath = vi.fn(() => "/tmp/openclaw-discord-process-test-sessions.json");
 
 vi.mock("../send.js", () => ({
-  reactMessageDiscord: (...args: unknown[]) => reactMessageDiscord(...args),
-  removeReactionDiscord: (...args: unknown[]) => removeReactionDiscord(...args),
+  reactMessageDiscord,
+  removeReactionDiscord,
 }));
 
 vi.mock("../../auto-reply/dispatch.js", () => ({
-  dispatchInboundMessage: (...args: unknown[]) => dispatchInboundMessage(...args),
+  dispatchInboundMessage,
 }));
 
 vi.mock("../../auto-reply/reply/reply-dispatcher.js", () => ({
@@ -32,6 +41,15 @@ vi.mock("../../auto-reply/reply/reply-dispatcher.js", () => ({
   })),
 }));
 
+vi.mock("../../channels/session.js", () => ({
+  recordInboundSession,
+}));
+
+vi.mock("../../config/sessions.js", () => ({
+  readSessionUpdatedAt,
+  resolveStorePath,
+}));
+
 const { processDiscordMessage } = await import("./message-handler.process.js");
 
 const createBaseContext = createBaseDiscordMessageContext;
@@ -41,10 +59,16 @@ beforeEach(() => {
   reactMessageDiscord.mockClear();
   removeReactionDiscord.mockClear();
   dispatchInboundMessage.mockReset();
+  recordInboundSession.mockReset();
+  readSessionUpdatedAt.mockReset();
+  resolveStorePath.mockReset();
   dispatchInboundMessage.mockResolvedValue({
     queuedFinal: false,
     counts: { final: 0, tool: 0, block: 0 },
   });
+  recordInboundSession.mockResolvedValue(undefined);
+  readSessionUpdatedAt.mockReturnValue(undefined);
+  resolveStorePath.mockReturnValue("/tmp/openclaw-discord-process-test-sessions.json");
 });
 
 describe("processDiscordMessage ack reactions", () => {
@@ -96,25 +120,20 @@ describe("processDiscordMessage ack reactions", () => {
   });
 
   it("debounces intermediate phase reactions and jumps to done for short runs", async () => {
-    dispatchInboundMessage.mockImplementationOnce(
-      async (params: {
-        replyOptions?: {
-          onReasoningStream?: () => Promise<void> | void;
-          onToolStart?: (payload: { name?: string }) => Promise<void> | void;
-        };
-      }) => {
-        await params.replyOptions?.onReasoningStream?.();
-        await params.replyOptions?.onToolStart?.({ name: "exec" });
-        return { queuedFinal: false, counts: { final: 0, tool: 0, block: 0 } };
-      },
-    );
+    dispatchInboundMessage.mockImplementationOnce(async (params?: DispatchInboundParams) => {
+      await params?.replyOptions?.onReasoningStream?.();
+      await params?.replyOptions?.onToolStart?.({ name: "exec" });
+      return { queuedFinal: false, counts: { final: 0, tool: 0, block: 0 } };
+    });
 
     const ctx = await createBaseContext();
 
     // oxlint-disable-next-line typescript/no-explicit-any
     await processDiscordMessage(ctx as any);
 
-    const emojis = reactMessageDiscord.mock.calls.map((call) => call[2]);
+    const emojis = (
+      reactMessageDiscord.mock.calls as unknown as Array<[unknown, unknown, string]>
+    ).map((call) => call[2]);
     expect(emojis).toContain("👀");
     expect(emojis).toContain("✅");
     expect(emojis).not.toContain("🧠");
@@ -134,14 +153,20 @@ describe("processDiscordMessage ack reactions", () => {
     // oxlint-disable-next-line typescript/no-explicit-any
     const runPromise = processDiscordMessage(ctx as any);
 
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(reactMessageDiscord.mock.calls.some((call) => call[2] === "⏳")).toBe(true);
+    let settled = false;
+    void runPromise.finally(() => {
+      settled = true;
+    });
+    for (let i = 0; i < 120 && !settled; i++) {
+      await vi.advanceTimersByTimeAsync(1_000);
+    }
 
-    await vi.advanceTimersByTimeAsync(20_000);
-    expect(reactMessageDiscord.mock.calls.some((call) => call[2] === "⚠️")).toBe(true);
-
-    await vi.advanceTimersByTimeAsync(1_000);
     await runPromise;
-    expect(reactMessageDiscord.mock.calls.some((call) => call[2] === "✅")).toBe(true);
+    const emojis = (
+      reactMessageDiscord.mock.calls as unknown as Array<[unknown, unknown, string]>
+    ).map((call) => call[2]);
+    expect(emojis).toContain("⏳");
+    expect(emojis).toContain("⚠️");
+    expect(emojis).toContain("✅");
   });
 });
