@@ -288,17 +288,33 @@ public actor GatewayChannelActor {
             try? await Task.sleep(nanoseconds: UInt64(self.keepaliveIntervalSeconds * 1_000_000_000))
             guard self.shouldReconnect else { return }
             guard self.connected else { continue }
-            // Best-effort outbound message to keep intermediate NAT/proxy state alive.
-            // We intentionally ignore the response.
-            // Node-role connections are not authorized to call `health`, so use a no-op
-            // node event there to avoid log noise while still generating outbound traffic.
+            // Best-effort outbound traffic to keep intermediate NAT/proxy state alive.
+            // Prefer websocket ping frames so we do not consume any gateway RPC bandwidth.
+            // Fall back to role-safe RPC keepalive only for non-URLSession task implementations.
             do {
-                let keepalive = self.keepaliveRequest()
-                try await self.send(method: keepalive.method, params: keepalive.params)
+                try await self.sendPingKeepalive()
             } catch {
                 // Avoid spamming logs; the reconnect paths will surface meaningful errors.
             }
         }
+    }
+
+    private func sendPingKeepalive() async throws {
+        if let rawTask = self.task?.task as? URLSessionWebSocketTask {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                rawTask.sendPing { error in
+                    if let error {
+                        cont.resume(throwing: error)
+                    } else {
+                        cont.resume(returning: ())
+                    }
+                }
+            }
+            return
+        }
+
+        let keepalive = self.keepaliveRequest()
+        try await self.send(method: keepalive.method, params: keepalive.params)
     }
 
     private func keepaliveRequest() -> (method: String, params: [String: AnyCodable]?) {
