@@ -290,12 +290,26 @@ public actor GatewayChannelActor {
             guard self.connected else { continue }
             // Best-effort outbound message to keep intermediate NAT/proxy state alive.
             // We intentionally ignore the response.
+            // Node-role connections are not authorized to call `health`, so use a no-op
+            // node event there to avoid log noise while still generating outbound traffic.
             do {
-                try await self.send(method: "health", params: nil)
+                let keepalive = self.keepaliveRequest()
+                try await self.send(method: keepalive.method, params: keepalive.params)
             } catch {
                 // Avoid spamming logs; the reconnect paths will surface meaningful errors.
             }
         }
+    }
+
+    private func keepaliveRequest() -> (method: String, params: [String: AnyCodable]?) {
+        if self.connectOptions?.role == "node" {
+            return (
+                method: "node.event",
+                params: [
+                    "event": AnyCodable("keepalive"),
+                ])
+        }
+        return (method: "health", params: nil)
     }
 
     private func sendConnect() async throws {
