@@ -19,6 +19,7 @@ ARG INSTALL_MCPORTER=1
 ARG INSTALL_GIFGREP=1
 ARG GIFGREP_GO_MODULE=github.com/steipete/gifgrep/cmd/gifgrep@latest
 ARG INSTALL_NANO_PDF=1
+ARG UV_TOOL_DIR=/opt/uv-tools
 ARG INSTALL_INFRA_TOOLS=0
 ARG INFRA_BREW_FORMULAE="kubectl helm terraform ansible"
 # Peekaboo is darwin-focused; keep disabled by default in Linux sandboxes.
@@ -98,12 +99,15 @@ RUN if [ "${INSTALL_PEEKABOO}" = "1" ] && [ "${INSTALL_BREW}" = "1" ]; then \
 fi
 
 
+# Install uv + tools globally so /home bind mounts do not hide them at runtime.
+RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+RUN mkdir -p "${UV_TOOL_DIR}"
+RUN UV_TOOL_DIR="${UV_TOOL_DIR}" UV_TOOL_BIN_DIR=/usr/local/bin uv tool install mistral-vibe
+RUN if [ "${INSTALL_NANO_PDF}" = "1" ]; then UV_TOOL_DIR="${UV_TOOL_DIR}" UV_TOOL_BIN_DIR=/usr/local/bin uv tool install nano-pdf; fi
+
 # Default is openclaw, but allow BASE_IMAGE overrides to select another final user.
 USER ${FINAL_USER}
 WORKDIR /home/${FINAL_USER}
 
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-RUN uv tool install mistral-vibe
-RUN if [ "${INSTALL_NANO_PDF}" = "1" ]; then uv tool install nano-pdf; fi
 RUN echo 'export PATH="$HOME/.local/bin:${BUN_INSTALL}/bin:${HOMEBREW_PREFIX}/bin:${HOMEBREW_PREFIX}/sbin:${PATH}"' >> /home/${FINAL_USER}/.zshrc
 RUN echo 'export PATH="$HOME/.local/bin:${BUN_INSTALL}/bin:${HOMEBREW_PREFIX}/bin:${HOMEBREW_PREFIX}/sbin:${PATH}"' >> /home/${FINAL_USER}/.bashrc
