@@ -5,7 +5,7 @@ USER root
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-ARG PACKAGES="curl wget jq coreutils grep nodejs npm python3 git ca-certificates golang-go rustc cargo unzip pkg-config libasound2-dev build-essential file"
+ARG PACKAGES="curl wget jq yq coreutils grep nodejs npm python3 python3-pip git ca-certificates golang-go rustc cargo unzip zip pkg-config libasound2-dev build-essential cmake file sqlite3 ripgrep procps nano fd-find openssh-client less locales tzdata mc tree fzf bat eza tmux vim rsync gh yt-dlp ffmpeg"
 ARG INSTALL_PNPM=1
 ARG INSTALL_BUN=1
 ARG BUN_INSTALL_DIR=/opt/bun
@@ -15,17 +15,34 @@ ARG INSTALL_COPILOT=1
 ARG INSTALL_GEMINI=1
 ARG INSTALL_CODEX=1
 ARG INSTALL_HIMALAYA=1
+ARG INSTALL_MCPORTER=1
+ARG INSTALL_GIFGREP=1
+ARG GIFGREP_GO_MODULE=github.com/steipete/gifgrep/cmd/gifgrep@latest
+ARG INSTALL_NANO_PDF=1
+ARG INSTALL_INFRA_TOOLS=0
+ARG INFRA_BREW_FORMULAE="kubectl helm terraform ansible"
+# Peekaboo is darwin-focused; keep disabled by default in Linux sandboxes.
+ARG INSTALL_PEEKABOO=0
 ARG FINAL_USER=openclaw
 
+ENV LOCAL_BIN_DIR=/home/${FINAL_USER}/.local/bin
 ENV BUN_INSTALL=${BUN_INSTALL_DIR}
 ENV HOMEBREW_PREFIX=${BREW_INSTALL_DIR}
 ENV HOMEBREW_CELLAR=${BREW_INSTALL_DIR}/Cellar
 ENV HOMEBREW_REPOSITORY=${BREW_INSTALL_DIR}/Homebrew
-ENV PATH=${BUN_INSTALL_DIR}/bin:${BREW_INSTALL_DIR}/bin:${BREW_INSTALL_DIR}/sbin:${PATH}
+ENV PATH=${LOCAL_BIN_DIR}:${BUN_INSTALL_DIR}/bin:${BREW_INSTALL_DIR}/bin:${BREW_INSTALL_DIR}/sbin:${PATH}
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ${PACKAGES} \
   && rm -rf /var/lib/apt/lists/*
+
+RUN if command -v fdfind >/dev/null 2>&1 && ! command -v fd >/dev/null 2>&1; then \
+  ln -sf "$(command -v fdfind)" /usr/local/bin/fd; \
+fi
+
+RUN if command -v batcat >/dev/null 2>&1 && ! command -v bat >/dev/null 2>&1; then \
+  ln -sf "$(command -v batcat)" /usr/local/bin/bat; \
+fi
 
 RUN if [ "${INSTALL_PNPM}" = "1" ]; then npm install -g pnpm; fi
 
@@ -38,10 +55,15 @@ RUN if [ "${INSTALL_BREW}" = "1" ]; then \
   if ! id -u linuxbrew >/dev/null 2>&1; then useradd -m -s /bin/bash linuxbrew; fi; \
   mkdir -p "${BREW_INSTALL_DIR}"; \
   chown -R linuxbrew:linuxbrew "$(dirname "${BREW_INSTALL_DIR}")"; \
-  su - linuxbrew -c "NONINTERACTIVE=1 CI=1 /bin/bash -c '$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)'"; \
+  su - linuxbrew -c "NONINTERACTIVE=1 CI=1 /bin/bash -lc 'curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh | /bin/bash'"; \
   if [ ! -e "${BREW_INSTALL_DIR}/Library" ]; then ln -s "${BREW_INSTALL_DIR}/Homebrew/Library" "${BREW_INSTALL_DIR}/Library"; fi; \
   if [ ! -x "${BREW_INSTALL_DIR}/bin/brew" ]; then echo \"brew install failed\"; exit 1; fi; \
-  ln -sf "${BREW_INSTALL_DIR}/bin/brew" /usr/local/bin/brew; \
+  chmod 755 "$(dirname "${BREW_INSTALL_DIR}")"; \
+  if id -u "${FINAL_USER}" >/dev/null 2>&1; then usermod -a -G linuxbrew "${FINAL_USER}"; fi; \
+  chmod -R g+rwX "${BREW_INSTALL_DIR}"; \
+  find "${BREW_INSTALL_DIR}" -type d -exec chmod g+s {} +; \
+  printf '%s\n' '#!/usr/bin/env bash' "exec \"${BREW_INSTALL_DIR}/bin/brew\" \"\$@\"" > /usr/local/bin/brew; \
+  chmod +x /usr/local/bin/brew; \
 fi
 
 RUN if [ "${INSTALL_COPILOT}" = "1" ]; then \
@@ -55,8 +77,24 @@ RUN if [ "${INSTALL_CODEX}" = "1" ]; then \
   npm install -g @openai/codex; \
 fi
 
+RUN if [ "${INSTALL_MCPORTER}" = "1" ]; then \
+  npm install -g mcporter; \
+fi
+
 RUN if [ "${INSTALL_HIMALAYA}" = "1" ]; then \
   curl -sSL https://raw.githubusercontent.com/pimalaya/himalaya/master/install.sh | sudo sh; \
+fi
+
+RUN if [ "${INSTALL_GIFGREP}" = "1" ]; then \
+  env GOBIN=/usr/local/bin go install "${GIFGREP_GO_MODULE}"; \
+fi
+
+RUN if [ "${INSTALL_INFRA_TOOLS}" = "1" ] && [ "${INSTALL_BREW}" = "1" ]; then \
+  su - linuxbrew -c "${BREW_INSTALL_DIR}/bin/brew install ${INFRA_BREW_FORMULAE}"; \
+fi
+
+RUN if [ "${INSTALL_PEEKABOO}" = "1" ] && [ "${INSTALL_BREW}" = "1" ]; then \
+  su - linuxbrew -c "${BREW_INSTALL_DIR}/bin/brew tap steipete/tap && ${BREW_INSTALL_DIR}/bin/brew install steipete/tap/peekaboo"; \
 fi
 
 
@@ -65,6 +103,7 @@ USER ${FINAL_USER}
 WORKDIR /home/${FINAL_USER}
 
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-RUN /home/openclaw/.local/bin/uv tool install mistral-vibe
-RUN echo 'export PATH="\${BUN_INSTALL}/bin:\${HOMEBREW_PREFIX}/bin:\${HOMEBREW_PREFIX}/sbin:\${PATH}"' >> /home/openclaw/.zshrc
-RUN echo 'export PATH="\${BUN_INSTALL}/bin:\${HOMEBREW_PREFIX}/bin:\${HOMEBREW_PREFIX}/sbin:\${PATH}"' >> /home/openclaw/.bashrc
+RUN uv tool install mistral-vibe
+RUN if [ "${INSTALL_NANO_PDF}" = "1" ]; then uv tool install nano-pdf; fi
+RUN echo 'export PATH="$HOME/.local/bin:${BUN_INSTALL}/bin:${HOMEBREW_PREFIX}/bin:${HOMEBREW_PREFIX}/sbin:${PATH}"' >> /home/${FINAL_USER}/.zshrc
+RUN echo 'export PATH="$HOME/.local/bin:${BUN_INSTALL}/bin:${HOMEBREW_PREFIX}/bin:${HOMEBREW_PREFIX}/sbin:${PATH}"' >> /home/${FINAL_USER}/.bashrc
