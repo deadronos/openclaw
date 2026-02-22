@@ -37,6 +37,25 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends ${PACKAGES} \
   && rm -rf /var/lib/apt/lists/*
 
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+    bash \
+    ca-certificates \
+    chromium \
+    chromium-sandbox \
+    curl \
+    fonts-liberation \
+    fonts-noto-color-emoji \
+    git \
+    jq \
+    novnc \
+    python3 \
+    socat \
+    websockify \
+    x11vnc \
+    xvfb \
+  && rm -rf /var/lib/apt/lists/*s  
+
 RUN if command -v fdfind >/dev/null 2>&1 && ! command -v fd >/dev/null 2>&1; then \
   ln -sf "$(command -v fdfind)" /usr/local/bin/fd; \
 fi
