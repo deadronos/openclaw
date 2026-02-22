@@ -106,8 +106,16 @@ RUN UV_TOOL_DIR="${UV_TOOL_DIR}" UV_TOOL_BIN_DIR=/usr/local/bin uv tool install 
 RUN if [ "${INSTALL_NANO_PDF}" = "1" ]; then UV_TOOL_DIR="${UV_TOOL_DIR}" UV_TOOL_BIN_DIR=/usr/local/bin uv tool install nano-pdf; fi
 
 # Default is openclaw, but allow BASE_IMAGE overrides to select another final user.
-USER ${FINAL_USER}
-WORKDIR /home/${FINAL_USER}
+
 
 RUN echo 'export PATH="$HOME/.local/bin:${BUN_INSTALL}/bin:${HOMEBREW_PREFIX}/bin:${HOMEBREW_PREFIX}/sbin:${PATH}"' >> /home/${FINAL_USER}/.zshrc
 RUN echo 'export PATH="$HOME/.local/bin:${BUN_INSTALL}/bin:${HOMEBREW_PREFIX}/bin:${HOMEBREW_PREFIX}/sbin:${PATH}"' >> /home/${FINAL_USER}/.bashrc
+
+COPY scripts/sandbox-browser-entrypoint.sh /usr/local/bin/openclaw-sandbox-browser
+RUN chmod +x /usr/local/bin/openclaw-sandbox-browser
+USER ${FINAL_USER}
+WORKDIR /home/${FINAL_USER}
+
+EXPOSE 9222 5900 6080
+
+CMD ["openclaw-sandbox-browser"]
