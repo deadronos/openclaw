@@ -20,6 +20,7 @@ export type TelegramThreadSpec = {
 export async function resolveTelegramGroupAllowFromContext(params: {
   chatId: string | number;
   accountId?: string;
+  dmPolicy?: string;
   isForum?: boolean;
   messageThreadId?: number | null;
   groupAllowFrom?: Array<string | number>;
@@ -53,6 +54,7 @@ export async function resolveTelegramGroupAllowFromContext(params: {
   const effectiveGroupAllow = normalizeAllowFromWithStore({
     allowFrom: groupAllowOverride ?? params.groupAllowFrom,
     storeAllowFrom,
+    dmPolicy: params.dmPolicy,
   });
   const hasGroupAllowOverride = typeof groupAllowOverride !== "undefined";
   return {
@@ -319,6 +321,8 @@ export type TelegramReplyTarget = {
   sender: string;
   body: string;
   kind: "reply" | "quote";
+  /** Forward context if the reply target was itself a forwarded message (issue #9619). */
+  forwardedFrom?: TelegramForwardedContext;
 };
 
 export function describeReplyTarget(msg: Message): TelegramReplyTarget | null {
@@ -357,11 +361,17 @@ export function describeReplyTarget(msg: Message): TelegramReplyTarget | null {
   const sender = replyLike ? buildSenderName(replyLike) : undefined;
   const senderLabel = sender ?? "unknown sender";
 
+  // Extract forward context from the resolved reply target (reply_to_message or external_reply).
+  const forwardedFrom = replyLike?.forward_origin
+    ? (resolveForwardOrigin(replyLike.forward_origin) ?? undefined)
+    : undefined;
+
   return {
     id: replyLike?.message_id ? String(replyLike.message_id) : undefined,
     sender: senderLabel,
     body,
     kind,
+    forwardedFrom,
   };
 }
 
