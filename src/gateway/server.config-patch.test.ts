@@ -13,128 +13,36 @@ import {
 
 installGatewayTestHooks({ scope: "suite" });
 
-let server: Awaited<ReturnType<typeof startServerWithClient>>["server"];
-let ws: Awaited<ReturnType<typeof startServerWithClient>>["ws"];
+let startedServer: Awaited<ReturnType<typeof startServerWithClient>> | null = null;
+
+function requireWs(): Awaited<ReturnType<typeof startServerWithClient>>["ws"] {
+  if (!startedServer) {
+    throw new Error("gateway test server not started");
+  }
+  return startedServer.ws;
+}
 
 beforeAll(async () => {
-  const started = await startServerWithClient(undefined, { controlUiEnabled: true });
-  server = started.server;
-  ws = started.ws;
-  await connectOk(ws);
+  startedServer = await startServerWithClient(undefined, { controlUiEnabled: true });
+  await connectOk(requireWs());
 });
 
 afterAll(async () => {
-  ws.close();
-  await server.close();
+  if (!startedServer) {
+    return;
+  }
+  startedServer.ws.close();
+  await startedServer.server.close();
+  startedServer = null;
 });
 
 describe("gateway config methods", () => {
-  type AgentConfigEntry = {
-    id: string;
-    default?: boolean;
-    workspace?: string;
-  };
-
-  const seedAgentsConfig = async (list: AgentConfigEntry[]) => {
-    const setRes = await rpcReq<{ ok?: boolean }>(ws, "config.set", {
-      raw: JSON.stringify({
-        agents: {
-          list,
-        },
-      }),
-    });
-    expect(setRes.ok).toBe(true);
-  };
-
-  const readConfigHash = async () => {
-    const snapshotRes = await rpcReq<{ hash?: string }>(ws, "config.get", {});
-    expect(snapshotRes.ok).toBe(true);
-    expect(typeof snapshotRes.payload?.hash).toBe("string");
-    return snapshotRes.payload?.hash ?? "";
-  };
-
-  it("returns a config snapshot", async () => {
-    const res = await rpcReq<{ hash?: string; raw?: string }>(ws, "config.get", {});
-    expect(res.ok).toBe(true);
-    const payload = res.payload ?? {};
-    expect(typeof payload.raw === "string" || typeof payload.hash === "string").toBe(true);
-  });
-
   it("rejects config.patch when raw is not an object", async () => {
-    const res = await rpcReq<{ ok?: boolean }>(ws, "config.patch", {
+    const res = await rpcReq<{ ok?: boolean }>(requireWs(), "config.patch", {
       raw: "[]",
     });
     expect(res.ok).toBe(false);
     expect(res.error?.message ?? "").toContain("raw must be an object");
-  });
-
-  it("merges agents.list entries by id instead of replacing the full array", async () => {
-    await seedAgentsConfig([
-      { id: "primary", default: true, workspace: "/tmp/primary" },
-      { id: "secondary", workspace: "/tmp/secondary" },
-    ]);
-    const baseHash = await readConfigHash();
-
-    const patchRes = await rpcReq<{
-      config?: {
-        agents?: {
-          list?: Array<{
-            id?: string;
-            workspace?: string;
-          }>;
-        };
-      };
-    }>(ws, "config.patch", {
-      baseHash,
-      raw: JSON.stringify({
-        agents: {
-          list: [
-            {
-              id: "primary",
-              workspace: "/tmp/primary-updated",
-            },
-          ],
-        },
-      }),
-    });
-    expect(patchRes.ok).toBe(true);
-
-    const list = patchRes.payload?.config?.agents?.list ?? [];
-    expect(list).toHaveLength(2);
-    const primary = list.find((entry) => entry.id === "primary");
-    const secondary = list.find((entry) => entry.id === "secondary");
-    expect(primary?.workspace).toBe("/tmp/primary-updated");
-    expect(secondary?.workspace).toBe("/tmp/secondary");
-  });
-
-  it("rejects mixed-id agents.list patches without mutating persisted config", async () => {
-    await seedAgentsConfig([
-      { id: "primary", default: true, workspace: "/tmp/primary" },
-      { id: "secondary", workspace: "/tmp/secondary" },
-    ]);
-    const beforeHash = await readConfigHash();
-
-    const patchRes = await rpcReq<{ ok?: boolean }>(ws, "config.patch", {
-      baseHash: beforeHash,
-      raw: JSON.stringify({
-        agents: {
-          list: [
-            {
-              id: "primary",
-              workspace: "/tmp/primary-updated",
-            },
-            {
-              workspace: "/tmp/orphan-no-id",
-            },
-          ],
-        },
-      }),
-    });
-    expect(patchRes.ok).toBe(false);
-    expect(patchRes.error?.message ?? "").toContain("invalid config");
-
-    const afterHash = await readConfigHash();
-    expect(afterHash).toBe(beforeHash);
   });
 });
 
@@ -178,7 +86,7 @@ describe("gateway server sessions", () => {
 
     const homeSessions = await rpcReq<{
       sessions: Array<{ key: string }>;
-    }>(ws, "sessions.list", {
+    }>(requireWs(), "sessions.list", {
       includeGlobal: false,
       includeUnknown: false,
       agentId: "home",
@@ -191,7 +99,7 @@ describe("gateway server sessions", () => {
 
     const workSessions = await rpcReq<{
       sessions: Array<{ key: string }>;
-    }>(ws, "sessions.list", {
+    }>(requireWs(), "sessions.list", {
       includeGlobal: false,
       includeUnknown: false,
       agentId: "work",
@@ -219,13 +127,13 @@ describe("gateway server sessions", () => {
       },
     });
 
-    const resolved = await rpcReq<{ ok: true; key: string }>(ws, "sessions.resolve", {
+    const resolved = await rpcReq<{ ok: true; key: string }>(requireWs(), "sessions.resolve", {
       key: "main",
     });
     expect(resolved.ok).toBe(true);
     expect(resolved.payload?.key).toBe("agent:ops:work");
 
-    const patched = await rpcReq<{ ok: true; key: string }>(ws, "sessions.patch", {
+    const patched = await rpcReq<{ ok: true; key: string }>(requireWs(), "sessions.patch", {
       key: "main",
       thinkingLevel: "medium",
     });

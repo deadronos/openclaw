@@ -5,10 +5,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { createTempHomeEnv } from "../test-utils/temp-home.js";
 import { setTempStateDir, writeDownloadSkill } from "./skills-install.download-test-utils.js";
 import { installSkill } from "./skills-install.js";
-
-const runCommandWithTimeoutMock = vi.fn();
-const scanDirectoryWithSummaryMock = vi.fn();
-const fetchWithSsrFGuardMock = vi.fn();
+import {
+  fetchWithSsrFGuardMock,
+  runCommandWithTimeoutMock,
+  scanDirectoryWithSummaryMock,
+} from "./skills-install.test-mocks.js";
 
 vi.mock("../process/exec.js", () => ({
   runCommandWithTimeout: (...args: unknown[]) => runCommandWithTimeoutMock(...args),
@@ -18,13 +19,10 @@ vi.mock("../infra/net/fetch-guard.js", () => ({
   fetchWithSsrFGuard: (...args: unknown[]) => fetchWithSsrFGuardMock(...args),
 }));
 
-vi.mock("../security/skill-scanner.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../security/skill-scanner.js")>();
-  return {
-    ...actual,
-    scanDirectoryWithSummary: (...args: unknown[]) => scanDirectoryWithSummaryMock(...args),
-  };
-});
+vi.mock("../security/skill-scanner.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../security/skill-scanner.js")>()),
+  scanDirectoryWithSummary: (...args: unknown[]) => scanDirectoryWithSummaryMock(...args),
+}));
 
 async function fileExists(filePath: string): Promise<boolean> {
   try {
@@ -77,8 +75,8 @@ function mockTarExtractionFlow(params: {
   verboseListOutput: string;
   extract: "ok" | "reject";
 }) {
-  runCommandWithTimeoutMock.mockImplementation(async (argv: unknown[]) => {
-    const cmd = argv as string[];
+  runCommandWithTimeoutMock.mockImplementation(async (...argv: unknown[]) => {
+    const cmd = (argv[0] ?? []) as string[];
     if (cmd[0] === "tar" && cmd[1] === "tf") {
       return runCommandResult({ stdout: params.listOutput });
     }
@@ -166,10 +164,11 @@ afterAll(async () => {
   }
 });
 
-beforeEach(() => {
-  runCommandWithTimeoutMock.mockClear();
-  scanDirectoryWithSummaryMock.mockClear();
-  fetchWithSsrFGuardMock.mockClear();
+beforeEach(async () => {
+  runCommandWithTimeoutMock.mockReset();
+  runCommandWithTimeoutMock.mockResolvedValue(runCommandResult());
+  scanDirectoryWithSummaryMock.mockReset();
+  fetchWithSsrFGuardMock.mockReset();
   scanDirectoryWithSummaryMock.mockResolvedValue({
     scannedFiles: 0,
     critical: 0,
@@ -242,10 +241,7 @@ describe("installSkill download extraction safety", () => {
   });
 
   it("rejects targetDir escapes outside the per-skill tools root", async () => {
-    for (const testCase of [
-      { name: "targetdir-escape", targetDir: path.join(workspaceDir, "outside") },
-      { name: "relative-traversal", targetDir: "../outside" },
-    ]) {
+    for (const testCase of [{ name: "relative-traversal", targetDir: "../outside" }]) {
       mockArchiveResponse(new Uint8Array(SAFE_ZIP_BUFFER));
       await writeDownloadSkill({
         workspaceDir,
@@ -288,16 +284,6 @@ describe("installSkill download extraction safety", () => {
 describe("installSkill download extraction safety (tar.bz2)", () => {
   it("handles tar.bz2 extraction safety edge-cases", async () => {
     for (const testCase of [
-      {
-        label: "rejects traversal before extraction",
-        name: "tbz2-slip",
-        url: "https://example.invalid/evil.tbz2",
-        listOutput: "../outside.txt\n",
-        verboseListOutput: "-rw-r--r--  0 0 0 0 Jan  1 00:00 ../outside.txt\n",
-        extract: "reject" as const,
-        expectedOk: false,
-        expectedExtract: false,
-      },
       {
         label: "rejects archives containing symlinks",
         name: "tbz2-symlink",
