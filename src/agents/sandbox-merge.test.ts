@@ -97,6 +97,36 @@ describe("sandbox config merges", () => {
     }
   });
 
+  it("resolves dangerous docker bind overrides and respects shared scope", () => {
+    const agentScoped = resolveSandboxDockerConfig({
+      scope: "agent",
+      globalDocker: {
+        dangerouslyAllowExternalBindSources: false,
+        dangerouslyAllowReservedContainerTargets: false,
+      },
+      agentDocker: {
+        dangerouslyAllowExternalBindSources: true,
+        dangerouslyAllowReservedContainerTargets: true,
+      },
+    });
+    expect(agentScoped.dangerouslyAllowExternalBindSources).toBe(true);
+    expect(agentScoped.dangerouslyAllowReservedContainerTargets).toBe(true);
+
+    const sharedScoped = resolveSandboxDockerConfig({
+      scope: "shared",
+      globalDocker: {
+        dangerouslyAllowExternalBindSources: false,
+        dangerouslyAllowReservedContainerTargets: false,
+      },
+      agentDocker: {
+        dangerouslyAllowExternalBindSources: true,
+        dangerouslyAllowReservedContainerTargets: true,
+      },
+    });
+    expect(sharedScoped.dangerouslyAllowExternalBindSources).toBe(false);
+    expect(sharedScoped.dangerouslyAllowReservedContainerTargets).toBe(false);
+  });
+
   it("applies per-agent browser and prune overrides (ignored under shared scope)", () => {
     const browser = resolveSandboxBrowserConfig({
       scope: "agent",
