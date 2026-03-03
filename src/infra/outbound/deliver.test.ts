@@ -116,6 +116,18 @@ async function runChunkedWhatsAppDelivery(params?: {
   return { sendWhatsApp, results };
 }
 
+async function deliverSingleWhatsAppForHookTest(params?: { sessionKey?: string }) {
+  const sendWhatsApp = vi.fn().mockResolvedValue({ messageId: "w1", toJid: "jid" });
+  await deliverOutboundPayloads({
+    cfg: whatsappChunkConfig,
+    channel: "whatsapp",
+    to: "+1555",
+    payloads: [{ text: "hello" }],
+    deps: { sendWhatsApp },
+    ...(params?.sessionKey ? { session: { key: params.sessionKey } } : {}),
+  });
+}
+
 describe("deliverOutboundPayloads", () => {
   beforeEach(() => {
     setActivePluginRegistry(defaultRegistry);
@@ -627,6 +639,8 @@ describe("deliverOutboundPayloads", () => {
     const { sendWhatsApp } = await runChunkedWhatsAppDelivery({
       mirror: {
         sessionKey: "agent:main:main",
+        isGroup: true,
+        groupId: "whatsapp:group:123",
       },
     });
     expect(sendWhatsApp).toHaveBeenCalledTimes(2);
@@ -643,37 +657,22 @@ describe("deliverOutboundPayloads", () => {
         channelId: "whatsapp",
         conversationId: "+1555",
         messageId: "w2",
+        isGroup: true,
+        groupId: "whatsapp:group:123",
       }),
     );
     expect(internalHookMocks.triggerInternalHook).toHaveBeenCalledTimes(1);
   });
 
   it("does not emit internal message:sent hook when neither mirror nor sessionKey is provided", async () => {
-    const sendWhatsApp = vi.fn().mockResolvedValue({ messageId: "w1", toJid: "jid" });
-
-    await deliverOutboundPayloads({
-      cfg: whatsappChunkConfig,
-      channel: "whatsapp",
-      to: "+1555",
-      payloads: [{ text: "hello" }],
-      deps: { sendWhatsApp },
-    });
+    await deliverSingleWhatsAppForHookTest();
 
     expect(internalHookMocks.createInternalHookEvent).not.toHaveBeenCalled();
     expect(internalHookMocks.triggerInternalHook).not.toHaveBeenCalled();
   });
 
   it("emits internal message:sent hook when sessionKey is provided without mirror", async () => {
-    const sendWhatsApp = vi.fn().mockResolvedValue({ messageId: "w1", toJid: "jid" });
-
-    await deliverOutboundPayloads({
-      cfg: whatsappChunkConfig,
-      channel: "whatsapp",
-      to: "+1555",
-      payloads: [{ text: "hello" }],
-      deps: { sendWhatsApp },
-      session: { key: "agent:main:main" },
-    });
+    await deliverSingleWhatsAppForHookTest({ sessionKey: "agent:main:main" });
 
     expect(internalHookMocks.createInternalHookEvent).toHaveBeenCalledTimes(1);
     expect(internalHookMocks.createInternalHookEvent).toHaveBeenCalledWith(
@@ -853,6 +852,39 @@ describe("deliverOutboundPayloads", () => {
       expect.objectContaining({ to: "!room:1", content: "payload text", success: true }),
       expect.objectContaining({ channelId: "matrix" }),
     );
+  });
+
+  it("preserves channelData-only payloads with empty text for non-WhatsApp sendPayload channels", async () => {
+    const sendPayload = vi.fn().mockResolvedValue({ channel: "line", messageId: "ln-1" });
+    const sendText = vi.fn();
+    const sendMedia = vi.fn();
+    setActivePluginRegistry(
+      createTestRegistry([
+        {
+          pluginId: "line",
+          source: "test",
+          plugin: createOutboundTestPlugin({
+            id: "line",
+            outbound: { deliveryMode: "direct", sendPayload, sendText, sendMedia },
+          }),
+        },
+      ]),
+    );
+
+    const results = await deliverOutboundPayloads({
+      cfg: {},
+      channel: "line",
+      to: "U123",
+      payloads: [{ text: " \n\t ", channelData: { mode: "flex" } }],
+    });
+
+    expect(sendPayload).toHaveBeenCalledTimes(1);
+    expect(sendPayload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({ text: "", channelData: { mode: "flex" } }),
+      }),
+    );
+    expect(results).toEqual([{ channel: "line", messageId: "ln-1" }]);
   });
 
   it("emits message_sent failure when delivery errors", async () => {
