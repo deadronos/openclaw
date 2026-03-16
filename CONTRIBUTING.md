@@ -89,6 +89,9 @@ Welcome to the lobster tank! 🦞
 
 - Test locally with your OpenClaw instance
 - Run tests: `pnpm build && pnpm check && pnpm test`
+- For extension/plugin changes, run the fast local lane first:
+  - `pnpm test:extension <extension-name>`
+  - If you changed shared plugin or channel surfaces, still run the broader relevant lanes (`pnpm test:extensions`, `pnpm test:channels`, or `pnpm test`) before asking for review
 - If you have access to Codex, run `codex review --base origin/main` locally before opening or updating your PR. Treat this as the current highest standard of AI review, even if GitHub Codex review also runs.
 - Ensure CI checks pass
 - Keep PRs focused (one thing per PR; do not mix unrelated concerns)
@@ -96,6 +99,7 @@ Welcome to the lobster tank! 🦞
 - Reply to or resolve bot review conversations you addressed before asking for review again
 - **Include screenshots** — one showing the problem/before, one showing the fix/after (for UI or visual changes)
 - Use American English spelling and grammar in code, comments, docs, and UI strings
+- Do not edit files covered by `CODEOWNERS` security ownership unless a listed owner explicitly asked for the change or is already reviewing it with you. Treat those paths as restricted review surfaces, not opportunistic cleanup targets.
 
 ## Review Conversations Are Author-Owned
 
