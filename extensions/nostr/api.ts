@@ -1,1 +1,1 @@
-export * from "../../src/plugin-sdk/nostr.js";
+export * from "./runtime-api.js";

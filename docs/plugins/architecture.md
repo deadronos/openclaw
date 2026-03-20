@@ -1,17 +1,23 @@
 ---
-summary: "Plugin architecture internals: capability model, ownership, contracts, load pipeline, runtime helpers"
+summary: "Plugin internals: capability model, ownership, contracts, load pipeline, and runtime helpers"
 read_when:
   - Building or debugging native OpenClaw plugins
   - Understanding the plugin capability model or ownership boundaries
   - Working on the plugin load pipeline or registry
   - Implementing provider runtime hooks or channel plugins
-title: "Plugin Architecture"
+title: "Plugin Internals"
+sidebarTitle: "Internals"
 ---
 
-# Plugin Architecture
+# Plugin Internals
 
-This page covers the internal architecture of the OpenClaw plugin system. For
-user-facing setup, discovery, and configuration, see [Plugins](/tools/plugin).
+<Info>
+  This page is for **plugin developers and contributors**. If you just want to
+  install and use plugins, see [Plugins](/tools/plugin). If you want to build
+  a plugin, see [Building Plugins](/plugins/building-plugins).
+</Info>
+
+This page covers the internal architecture of the OpenClaw plugin system.
 
 ## Public capability model
 
@@ -974,10 +980,27 @@ Compatibility note:
   helper is only needed by a bundled extension, keep it behind the extension's
   local `api.js` or `runtime-api.js` seam instead of promoting it into
   `openclaw/plugin-sdk/<extension>`.
+- Channel-branded bundled bars such as `feishu`, `googlechat`, `irc`, `line`,
+  `nostr`, `twitch`, and `zalo` stay private unless they are explicitly added
+  back to the public contract.
 - Capability-specific subpaths such as `image-generation`,
   `media-understanding`, and `speech` exist because bundled/native plugins use
   them today. Their presence does not by itself mean every exported helper is a
   long-term frozen external contract.
+
+## Message tool schemas
+
+Plugins should own channel-specific `describeMessageTool(...)` schema
+contributions. Keep provider-specific fields in the plugin, not in shared core.
+
+For shared portable schema fragments, reuse the generic helpers exported through
+`openclaw/plugin-sdk/channel-runtime`:
+
+- `createMessageToolButtonsSchema()` for button-grid style payloads
+- `createMessageToolCardSchema()` for structured card payloads
+
+If a schema shape only makes sense for one provider, define it in that plugin's
+own source instead of promoting it into the shared SDK.
 
 ## Channel target resolution
 

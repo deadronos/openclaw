@@ -4,7 +4,7 @@ import {
   resolveAccountEntry,
   type OpenClawConfig,
 } from "openclaw/plugin-sdk/account-resolution";
-import type { SignalAccountConfig } from "../../../src/plugin-sdk/signal-core.js";
+import type { SignalAccountConfig } from "./runtime-api.js";
 
 export type ResolvedSignalAccount = {
   accountId: string;

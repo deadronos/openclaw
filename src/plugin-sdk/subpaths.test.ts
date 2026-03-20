@@ -13,9 +13,12 @@ import type {
 import * as directoryRuntimeSdk from "openclaw/plugin-sdk/directory-runtime";
 import * as discordSdk from "openclaw/plugin-sdk/discord";
 import * as imessageSdk from "openclaw/plugin-sdk/imessage";
+import * as imessageCoreSdk from "openclaw/plugin-sdk/imessage-core";
 import * as lazyRuntimeSdk from "openclaw/plugin-sdk/lazy-runtime";
 import * as ollamaSetupSdk from "openclaw/plugin-sdk/ollama-setup";
+import * as providerAuthSdk from "openclaw/plugin-sdk/provider-auth";
 import * as providerModelsSdk from "openclaw/plugin-sdk/provider-models";
+import * as providerOauthSdk from "openclaw/plugin-sdk/provider-oauth";
 import * as providerSetupSdk from "openclaw/plugin-sdk/provider-setup";
 import * as replyPayloadSdk from "openclaw/plugin-sdk/reply-payload";
 import * as routingSdk from "openclaw/plugin-sdk/routing";
@@ -54,18 +57,20 @@ const accountHelpersSdk = await import("openclaw/plugin-sdk/account-helpers");
 const allowlistEditSdk = await import("openclaw/plugin-sdk/allowlist-config-edit");
 
 describe("plugin-sdk subpath exports", () => {
-  it("keeps the curated public list free of bundled extension facades", () => {
+  it("keeps the curated public list free of internal implementation subpaths", () => {
+    expect(pluginSdkSubpaths).not.toContain("acpx");
     expect(pluginSdkSubpaths).not.toContain("compat");
-    expect(pluginSdkSubpaths).not.toContain("signal");
-    expect(pluginSdkSubpaths).not.toContain("line");
-    expect(pluginSdkSubpaths).not.toContain("msteams");
-    expect(pluginSdkSubpaths).not.toContain("googlechat");
-    expect(pluginSdkSubpaths).not.toContain("mattermost");
-    expect(pluginSdkSubpaths).not.toContain("matrix");
-    expect(pluginSdkSubpaths).not.toContain("nostr");
-    expect(pluginSdkSubpaths).not.toContain("voice-call");
-    expect(pluginSdkSubpaths).not.toContain("zalo");
-    expect(pluginSdkSubpaths).not.toContain("zalouser");
+    expect(pluginSdkSubpaths).not.toContain("device-pair");
+    expect(pluginSdkSubpaths).not.toContain("google");
+    expect(pluginSdkSubpaths).not.toContain("lobster");
+    expect(pluginSdkSubpaths).not.toContain("pairing-access");
+    expect(pluginSdkSubpaths).not.toContain("qwen-portal-auth");
+    expect(pluginSdkSubpaths).not.toContain("reply-prefix");
+    expect(pluginSdkSubpaths).not.toContain("signal-core");
+    expect(pluginSdkSubpaths).not.toContain("synology-chat");
+    expect(pluginSdkSubpaths).not.toContain("typing");
+    expect(pluginSdkSubpaths).not.toContain("zai");
+    expect(pluginSdkSubpaths).not.toContain("provider-model-definitions");
   });
 
   it("keeps core focused on generic shared exports", () => {
@@ -96,6 +101,13 @@ describe("plugin-sdk subpath exports", () => {
     expect(typeof accountHelpersSdk.createAccountListHelpers).toBe("function");
   });
 
+  it("exports device bootstrap helpers from the dedicated subpath", async () => {
+    const deviceBootstrapSdk = await import("openclaw/plugin-sdk/device-bootstrap");
+    expect(typeof deviceBootstrapSdk.approveDevicePairing).toBe("function");
+    expect(typeof deviceBootstrapSdk.issueDeviceBootstrapToken).toBe("function");
+    expect(typeof deviceBootstrapSdk.listDevicePairing).toBe("function");
+  });
+
   it("exports allowlist edit helpers from the dedicated subpath", () => {
     expect(typeof allowlistEditSdk.buildDmGroupAccountAllowlistAdapter).toBe("function");
     expect(typeof allowlistEditSdk.createNestedAllowlistOverrideResolver).toBe("function");
@@ -123,12 +135,15 @@ describe("plugin-sdk subpath exports", () => {
 
   it("exports channel pairing helpers from the dedicated subpath", () => {
     expect(typeof channelPairingSdk.createChannelPairingController).toBe("function");
-    expect(typeof channelPairingSdk.createScopedPairingAccess).toBe("function");
+    expect(typeof channelPairingSdk.createChannelPairingChallengeIssuer).toBe("function");
+    expect("createScopedPairingAccess" in asExports(channelPairingSdk)).toBe(false);
   });
 
   it("exports channel reply pipeline helpers from the dedicated subpath", () => {
     expect(typeof channelReplyPipelineSdk.createChannelReplyPipeline).toBe("function");
-    expect(typeof channelReplyPipelineSdk.createTypingCallbacks).toBe("function");
+    expect("createTypingCallbacks" in asExports(channelReplyPipelineSdk)).toBe(false);
+    expect("createReplyPrefixContext" in asExports(channelReplyPipelineSdk)).toBe(false);
+    expect("createReplyPrefixOptions" in asExports(channelReplyPipelineSdk)).toBe(false);
   });
 
   it("exports channel send-result helpers from the dedicated subpath", () => {
@@ -139,6 +154,14 @@ describe("plugin-sdk subpath exports", () => {
   it("exports provider setup helpers from the dedicated subpath", () => {
     expect(typeof providerSetupSdk.buildVllmProvider).toBe("function");
     expect(typeof providerSetupSdk.discoverOpenAICompatibleSelfHostedProvider).toBe("function");
+  });
+
+  it("exports oauth helpers from the dedicated provider oauth subpath", () => {
+    expect(typeof providerOauthSdk.buildOauthProviderAuthResult).toBe("function");
+    expect(typeof providerOauthSdk.generatePkceVerifierChallenge).toBe("function");
+    expect(typeof providerOauthSdk.toFormUrlEncoded).toBe("function");
+    expect("buildOauthProviderAuthResult" in asExports(coreSdk)).toBe(false);
+    expect("buildOauthProviderAuthResult" in asExports(providerAuthSdk)).toBe(false);
   });
 
   it("keeps provider models focused on shared provider primitives", () => {
@@ -189,8 +212,11 @@ describe("plugin-sdk subpath exports", () => {
   });
 
   it("exports webhook ingress helpers from the dedicated subpath", () => {
+    expect(typeof webhookIngressSdk.registerPluginHttpRoute).toBe("function");
     expect(typeof webhookIngressSdk.resolveWebhookPath).toBe("function");
+    expect(typeof webhookIngressSdk.readRequestBodyWithLimit).toBe("function");
     expect(typeof webhookIngressSdk.readJsonWebhookBodyOrReject).toBe("function");
+    expect(typeof webhookIngressSdk.requestBodyErrorToText).toBe("function");
     expect(typeof webhookIngressSdk.withResolvedWebhookRequestPipeline).toBe("function");
   });
 
@@ -239,10 +265,19 @@ describe("plugin-sdk subpath exports", () => {
     expect("resolveIMessageAccount" in asExports(imessageSdk)).toBe(false);
   });
 
+  it("exports iMessage core helpers", () => {
+    expect(typeof imessageCoreSdk.buildChannelConfigSchema).toBe("function");
+    expect(typeof imessageCoreSdk.parseChatTargetPrefixesOrThrow).toBe("function");
+    expect(typeof imessageCoreSdk.resolveServicePrefixedTarget).toBe("function");
+    expect(typeof imessageCoreSdk.IMessageConfigSchema).toBe("object");
+  });
+
   it("exports WhatsApp helpers", () => {
     expect(typeof whatsappSdk.WhatsAppConfigSchema).toBe("object");
     expect(typeof whatsappSdk.resolveWhatsAppOutboundTarget).toBe("function");
     expect(typeof whatsappSdk.resolveWhatsAppMentionStripRegexes).toBe("function");
+    expect(typeof whatsappSdk.sendMessageWhatsApp).toBe("function");
+    expect(typeof whatsappSdk.loadWebMedia).toBe("function");
   });
 
   it("exports WhatsApp QR login helpers from the dedicated subpath", () => {

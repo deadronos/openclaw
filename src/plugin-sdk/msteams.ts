@@ -1,4 +1,4 @@
-// Narrow plugin-sdk surface for the bundled msteams plugin.
+// Private helper surface for the bundled msteams plugin.
 // Keep this list additive and scoped to symbols used under extensions/msteams.
 
 import { createOptionalChannelSetupSurface } from "./channel-setup.js";
@@ -52,8 +52,7 @@ export type {
   ChannelOutboundAdapter,
 } from "../channels/plugins/types.js";
 export type { ChannelPlugin } from "../channels/plugins/types.plugin.js";
-export { createChannelReplyPipeline, createReplyPrefixOptions } from "./channel-reply-pipeline.js";
-export { createTypingCallbacks } from "./channel-reply-pipeline.js";
+export { createChannelReplyPipeline } from "./channel-reply-pipeline.js";
 export type { OpenClawConfig } from "../config/config.js";
 export { isDangerousNameMatchingEnabled } from "../config/dangerous-name-matching.js";
 export { resolveToolsBySender } from "../config/group-policy.js";
@@ -106,7 +105,7 @@ export { withFileLock } from "./file-lock.js";
 export { dispatchReplyFromConfigWithSettledDispatcher } from "./inbound-reply-dispatch.js";
 export { readJsonFileWithFallback, writeJsonFileAtomically } from "./json-store.js";
 export { loadOutboundMediaFromUrl } from "./outbound-media.js";
-export { createChannelPairingController, createScopedPairingAccess } from "./channel-pairing.js";
+export { createChannelPairingController } from "./channel-pairing.js";
 export { resolveInboundSessionEnvelopeContext } from "../channels/session-envelope.js";
 export {
   buildHostnameAllowlistPolicyFromSuffixAllowlist,

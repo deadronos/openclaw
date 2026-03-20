@@ -1,4 +1,4 @@
-// Narrow plugin-sdk surface for the bundled zalo plugin.
+// Private helper surface for the bundled zalo plugin.
 // Keep this list additive and scoped to symbols used under extensions/zalo.
 
 export { jsonResult, readStringParam } from "../agents/tools/common.js";
@@ -35,8 +35,7 @@ export type {
 } from "../channels/plugins/types.js";
 export type { ChannelPlugin } from "../channels/plugins/types.plugin.js";
 export { logTypingFailure } from "../channels/logging.js";
-export { createChannelReplyPipeline, createReplyPrefixOptions } from "./channel-reply-pipeline.js";
-export { createTypingCallbacks } from "./channel-reply-pipeline.js";
+export { createChannelReplyPipeline } from "./channel-reply-pipeline.js";
 export type { OpenClawConfig } from "../config/config.js";
 export {
   resolveDefaultGroupPolicy,
@@ -72,7 +71,7 @@ export { resolveChannelAccountConfigBasePath } from "./config-paths.js";
 export { evaluateSenderGroupAccess } from "./group-access.js";
 export type { SenderGroupAccessDecision } from "./group-access.js";
 export { resolveInboundRouteEnvelopeBuilderWithRuntime } from "./inbound-envelope.js";
-export { createChannelPairingController, createScopedPairingAccess } from "./channel-pairing.js";
+export { createChannelPairingController } from "./channel-pairing.js";
 export { buildChannelSendResult } from "./channel-send-result.js";
 export type { OutboundReplyPayload } from "./reply-payload.js";
 export {
