@@ -40,6 +40,9 @@ function createHandlerHarness() {
           mainSessionKey: "agent:main:main",
         }),
       },
+      mentions: {
+        buildMentionRegexes: vi.fn().mockReturnValue([]),
+      },
       session: {
         resolveStorePath: vi.fn().mockReturnValue("/tmp/openclaw-test-session.json"),
         readSessionUpdatedAt: vi.fn().mockReturnValue(123),
@@ -53,11 +56,19 @@ function createHandlerHarness() {
           dispatcher: {},
           replyOptions: {},
           markDispatchIdle: vi.fn(),
+          markRunComplete: vi.fn(),
         }),
         resolveHumanDelayConfig: vi.fn().mockReturnValue(undefined),
         dispatchReplyFromConfig: vi
           .fn()
           .mockResolvedValue({ queuedFinal: false, counts: { final: 0, block: 0, tool: 0 } }),
+        withReplyDispatcher: vi.fn().mockImplementation(async ({ run, onSettled }) => {
+          try {
+            return await run();
+          } finally {
+            await onSettled?.();
+          }
+        }),
       },
       commands: {
         shouldHandleTextCommands: vi.fn().mockReturnValue(true),

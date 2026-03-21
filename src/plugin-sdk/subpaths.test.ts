@@ -36,6 +36,7 @@ import type {
 import * as directoryRuntimeSdk from "openclaw/plugin-sdk/directory-runtime";
 import * as infraRuntimeSdk from "openclaw/plugin-sdk/infra-runtime";
 import * as lazyRuntimeSdk from "openclaw/plugin-sdk/lazy-runtime";
+import * as matrixRuntimeSharedSdk from "openclaw/plugin-sdk/matrix-runtime-shared";
 import * as mediaRuntimeSdk from "openclaw/plugin-sdk/media-runtime";
 import * as ollamaSetupSdk from "openclaw/plugin-sdk/ollama-setup";
 import * as providerAuthSdk from "openclaw/plugin-sdk/provider-auth";
@@ -50,7 +51,9 @@ import * as sandboxSdk from "openclaw/plugin-sdk/sandbox";
 import * as secretInputSdk from "openclaw/plugin-sdk/secret-input";
 import * as selfHostedProviderSetupSdk from "openclaw/plugin-sdk/self-hosted-provider-setup";
 import * as setupSdk from "openclaw/plugin-sdk/setup";
+import * as ssrfRuntimeSdk from "openclaw/plugin-sdk/ssrf-runtime";
 import * as testingSdk from "openclaw/plugin-sdk/testing";
+import * as threadBindingsRuntimeSdk from "openclaw/plugin-sdk/thread-bindings-runtime";
 import * as webhookIngressSdk from "openclaw/plugin-sdk/webhook-ingress";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import type { ChannelMessageActionContext } from "../channels/plugins/types.js";
@@ -94,7 +97,6 @@ describe("plugin-sdk subpath exports", () => {
     expect(pluginSdkSubpaths).not.toContain("bluebubbles");
     expect(pluginSdkSubpaths).not.toContain("compat");
     expect(pluginSdkSubpaths).not.toContain("device-pair");
-    expect(pluginSdkSubpaths).not.toContain("discord");
     expect(pluginSdkSubpaths).not.toContain("feishu");
     expect(pluginSdkSubpaths).not.toContain("google");
     expect(pluginSdkSubpaths).not.toContain("googlechat");
@@ -129,7 +131,6 @@ describe("plugin-sdk subpath exports", () => {
     expect(pluginSdkSubpaths).not.toContain("secret-input-runtime");
     expect(pluginSdkSubpaths).not.toContain("secret-input-schema");
     expect(pluginSdkSubpaths).not.toContain("zai");
-    expect(pluginSdkSubpaths).not.toContain("discord-core");
     expect(pluginSdkSubpaths).not.toContain("slack-core");
     expect(pluginSdkSubpaths).not.toContain("provider-model-definitions");
   });
@@ -215,6 +216,14 @@ describe("plugin-sdk subpath exports", () => {
 
   it("exports runtime helpers from the dedicated subpath", () => {
     expect(typeof runtimeSdk.createLoggerBackedRuntime).toBe("function");
+  });
+
+  it("exports Discord component helpers from the dedicated subpath", async () => {
+    const discordSdk = await import("openclaw/plugin-sdk/discord");
+    expect(typeof discordSdk.buildDiscordComponentMessage).toBe("function");
+    expect(typeof discordSdk.editDiscordComponentMessage).toBe("function");
+    expect(typeof discordSdk.registerBuiltDiscordComponentMessage).toBe("function");
+    expect(typeof discordSdk.resolveDiscordAccount).toBe("function");
   });
 
   it("exports channel identity and session helpers from stronger existing homes", () => {
@@ -521,6 +530,22 @@ describe("plugin-sdk subpath exports", () => {
     expect(typeof conversationRuntimeSdk.createScopedAccountReplyToModeResolver).toBe("function");
     expect(typeof conversationRuntimeSdk.createStaticReplyToModeResolver).toBe("function");
     expect(typeof conversationRuntimeSdk.createTopLevelChannelReplyToModeResolver).toBe("function");
+  });
+
+  it("exports narrow binding lifecycle helpers from the dedicated subpath", () => {
+    expect(typeof threadBindingsRuntimeSdk.resolveThreadBindingLifecycle).toBe("function");
+  });
+
+  it("exports narrow matrix runtime helpers from the dedicated subpath", () => {
+    expect(typeof matrixRuntimeSharedSdk.formatZonedTimestamp).toBe("function");
+  });
+
+  it("exports narrow ssrf helpers from the dedicated subpath", () => {
+    expect(typeof ssrfRuntimeSdk.closeDispatcher).toBe("function");
+    expect(typeof ssrfRuntimeSdk.createPinnedDispatcher).toBe("function");
+    expect(typeof ssrfRuntimeSdk.resolvePinnedHostnameWithPolicy).toBe("function");
+    expect(typeof ssrfRuntimeSdk.assertHttpUrlTargetsPrivateNetwork).toBe("function");
+    expect(typeof ssrfRuntimeSdk.ssrfPolicyFromAllowPrivateNetwork).toBe("function");
   });
 
   it("exports provider setup helpers from the dedicated subpath", () => {
