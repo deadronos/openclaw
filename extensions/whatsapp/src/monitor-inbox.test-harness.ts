@@ -118,16 +118,20 @@ vi.mock("openclaw/plugin-sdk/security-runtime", async (importOriginal) => {
   };
 });
 
-vi.mock("./session.js", () => ({
-  createWaSocket: vi.fn().mockImplementation(async () => {
-    if (!sessionState.sock) {
-      throw new Error("mock WhatsApp socket not initialized");
-    }
-    return sessionState.sock;
-  }),
-  waitForWaConnection: vi.fn().mockResolvedValue(undefined),
-  getStatusCode: vi.fn(() => 500),
-}));
+vi.mock("./session.js", async () => {
+  const actual = await vi.importActual<typeof import("./session.js")>("./session.js");
+  return {
+    ...actual,
+    createWaSocket: vi.fn().mockImplementation(async () => {
+      if (!sessionState.sock) {
+        throw new Error("mock WhatsApp socket not initialized");
+      }
+      return sessionState.sock;
+    }),
+    waitForWaConnection: vi.fn().mockResolvedValue(undefined),
+    getStatusCode: vi.fn(() => 500),
+  };
+});
 
 export function getSock(): MockSock {
   if (!sessionState.sock) {
@@ -139,6 +143,13 @@ export function getSock(): MockSock {
 type MonitorWebInbox = typeof import("./inbound.js").monitorWebInbox;
 export type InboxOnMessage = NonNullable<Parameters<MonitorWebInbox>[0]["onMessage"]>;
 let monitorWebInbox: MonitorWebInbox;
+
+export function getMonitorWebInbox(): MonitorWebInbox {
+  if (!monitorWebInbox) {
+    throw new Error("monitorWebInbox not initialized");
+  }
+  return monitorWebInbox;
+}
 
 export async function settleInboundWork() {
   await new Promise((resolve) => setTimeout(resolve, 25));
