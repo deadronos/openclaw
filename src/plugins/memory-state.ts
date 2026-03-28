@@ -4,7 +4,7 @@ import type {
   MemoryEmbeddingProbeResult,
   MemoryProviderStatus,
   MemorySyncProgressUpdate,
-} from "../memory/types.js";
+} from "../plugin-sdk/memory-core-host-engine-storage.js";
 
 export type MemoryPromptSectionBuilder = (params: {
   availableTools: Set<string>;
@@ -56,6 +56,7 @@ export type MemoryPluginRuntime = {
     cfg: OpenClawConfig;
     agentId: string;
   }): MemoryRuntimeBackendConfig;
+  closeAllMemorySearchManagers?(): Promise<void>;
 };
 
 type MemoryPluginState = {
@@ -102,6 +103,10 @@ export function registerMemoryRuntime(runtime: MemoryPluginRuntime): void {
 
 export function getMemoryRuntime(): MemoryPluginRuntime | undefined {
   return memoryPluginState.runtime;
+}
+
+export function hasMemoryRuntime(): boolean {
+  return memoryPluginState.runtime !== undefined;
 }
 
 export function restoreMemoryPluginState(state: MemoryPluginState): void {

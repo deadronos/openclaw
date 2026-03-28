@@ -1,5 +1,10 @@
-import type { AnyAgentTool, OpenClawConfig } from "openclaw/plugin-sdk/memory-core";
-import { jsonResult, readNumberParam, readStringParam } from "openclaw/plugin-sdk/memory-core";
+import {
+  jsonResult,
+  readNumberParam,
+  readStringParam,
+  type AnyAgentTool,
+  type OpenClawConfig,
+} from "openclaw/plugin-sdk/memory-core-host-runtime-core";
 import {
   clampResultsByInjectedChars,
   decorateCitations,

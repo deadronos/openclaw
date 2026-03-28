@@ -20,25 +20,42 @@ const resolveCommandSecretRefsViaGateway = vi.hoisted(() =>
   })),
 );
 
-vi.mock("openclaw/plugin-sdk/memory-core", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/memory-core")>();
+vi.mock("openclaw/plugin-sdk/memory-core-host-runtime-core", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("openclaw/plugin-sdk/memory-core-host-runtime-core")>();
   return {
     ...actual,
-    getMemorySearchManager,
     loadConfig,
     resolveDefaultAgentId,
+  };
+});
+
+vi.mock("openclaw/plugin-sdk/memory-core-host-runtime-cli", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("openclaw/plugin-sdk/memory-core-host-runtime-cli")>();
+  return {
+    ...actual,
     resolveCommandSecretRefsViaGateway,
   };
 });
 
+vi.mock("./memory/index.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./memory/index.js")>();
+  return {
+    ...actual,
+    getMemorySearchManager,
+  };
+});
+
 let registerMemoryCli: typeof import("./cli.js").registerMemoryCli;
-let defaultRuntime: typeof import("openclaw/plugin-sdk/memory-core").defaultRuntime;
-let isVerbose: typeof import("openclaw/plugin-sdk/memory-core").isVerbose;
-let setVerbose: typeof import("openclaw/plugin-sdk/memory-core").setVerbose;
+let defaultRuntime: typeof import("openclaw/plugin-sdk/memory-core-host-runtime-cli").defaultRuntime;
+let isVerbose: typeof import("openclaw/plugin-sdk/memory-core-host-runtime-cli").isVerbose;
+let setVerbose: typeof import("openclaw/plugin-sdk/memory-core-host-runtime-cli").setVerbose;
 
 beforeAll(async () => {
   ({ registerMemoryCli } = await import("./cli.js"));
-  ({ defaultRuntime, isVerbose, setVerbose } = await import("openclaw/plugin-sdk/memory-core"));
+  ({ defaultRuntime, isVerbose, setVerbose } =
+    await import("openclaw/plugin-sdk/memory-core-host-runtime-cli"));
 });
 
 beforeEach(() => {

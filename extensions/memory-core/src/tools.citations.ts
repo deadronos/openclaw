@@ -1,9 +1,9 @@
-import type {
-  MemoryCitationsMode,
-  MemorySearchResult,
-  OpenClawConfig,
-} from "openclaw/plugin-sdk/memory-core";
-import { parseAgentSessionKey } from "openclaw/plugin-sdk/memory-core";
+import {
+  parseAgentSessionKey,
+  type MemoryCitationsMode,
+  type OpenClawConfig,
+} from "openclaw/plugin-sdk/memory-core-host-runtime-core";
+import type { MemorySearchResult } from "openclaw/plugin-sdk/memory-core-host-runtime-files";
 
 export function resolveMemoryCitationsMode(cfg: OpenClawConfig): MemoryCitationsMode {
   const mode = cfg.memory?.citations;
