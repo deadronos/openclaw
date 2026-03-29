@@ -2,7 +2,7 @@ import {
   auditTelegramGroupMembership as auditTelegramGroupMembershipImpl,
   monitorTelegramProvider as monitorTelegramProviderImpl,
   probeTelegram as probeTelegramImpl,
-} from "../../plugin-sdk/telegram.js";
+} from "../../plugin-sdk/telegram-runtime.js";
 import {
   deleteMessageTelegram as deleteMessageTelegramImpl,
   editMessageReplyMarkupTelegram as editMessageReplyMarkupTelegramImpl,
@@ -13,7 +13,7 @@ import {
   sendPollTelegram as sendPollTelegramImpl,
   sendTypingTelegram as sendTypingTelegramImpl,
   unpinMessageTelegram as unpinMessageTelegramImpl,
-} from "../../plugin-sdk/telegram.js";
+} from "../../plugin-sdk/telegram-runtime.js";
 import type { PluginRuntimeChannel } from "./types-channel.js";
 
 type RuntimeTelegramOps = Pick<

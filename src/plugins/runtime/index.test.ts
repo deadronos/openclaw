@@ -215,6 +215,40 @@ describe("plugin runtime command execution", () => {
         ]);
       },
     },
+    {
+      name: "exposes runtime.channel.telegram without re-entering the plugin barrel",
+      assert: (runtime: ReturnType<typeof createPluginRuntime>) => {
+        expectFunctionKeys(runtime.channel.telegram as Record<string, unknown>, [
+          "auditGroupMembership",
+          "collectUnmentionedGroupIds",
+          "probeTelegram",
+          "resolveTelegramToken",
+          "sendMessageTelegram",
+          "sendPollTelegram",
+          "monitorTelegramProvider",
+        ]);
+        expectFunctionKeys(runtime.channel.telegram.threadBindings as Record<string, unknown>, [
+          "setIdleTimeoutBySessionKey",
+          "setMaxAgeBySessionKey",
+        ]);
+        expectFunctionKeys(runtime.channel.telegram.typing as Record<string, unknown>, [
+          "pulse",
+          "start",
+        ]);
+        expectFunctionKeys(
+          runtime.channel.telegram.conversationActions as Record<string, unknown>,
+          [
+            "editMessage",
+            "editReplyMarkup",
+            "clearReplyMarkup",
+            "deleteMessage",
+            "renameTopic",
+            "pinMessage",
+            "unpinMessage",
+          ],
+        );
+      },
+    },
   ] as const)("$name", ({ assert }) => {
     expectRuntimeShape(assert);
   });

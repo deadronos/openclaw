@@ -147,20 +147,20 @@ export type PluginRuntimeChannel = {
     handleSlackAction: typeof import("../../plugin-sdk/slack.js").handleSlackAction;
   };
   telegram: {
-    auditGroupMembership: typeof import("../../plugin-sdk/telegram.js").auditTelegramGroupMembership;
-    collectUnmentionedGroupIds: typeof import("../../plugin-sdk/telegram.js").collectTelegramUnmentionedGroupIds;
-    probeTelegram: typeof import("../../plugin-sdk/telegram.js").probeTelegram;
-    resolveTelegramToken: typeof import("../../plugin-sdk/telegram.js").resolveTelegramToken;
-    sendMessageTelegram: typeof import("../../plugin-sdk/telegram.js").sendMessageTelegram;
-    sendPollTelegram: typeof import("../../plugin-sdk/telegram.js").sendPollTelegram;
-    monitorTelegramProvider: typeof import("../../plugin-sdk/telegram.js").monitorTelegramProvider;
-    messageActions: typeof import("../../plugin-sdk/telegram.js").telegramMessageActions;
+    auditGroupMembership: typeof import("../../plugin-sdk/telegram-runtime.js").auditTelegramGroupMembership;
+    collectUnmentionedGroupIds: typeof import("../../plugin-sdk/telegram-runtime.js").collectTelegramUnmentionedGroupIds;
+    probeTelegram: typeof import("../../plugin-sdk/telegram-runtime.js").probeTelegram;
+    resolveTelegramToken: typeof import("../../plugin-sdk/telegram-runtime.js").resolveTelegramToken;
+    sendMessageTelegram: typeof import("../../plugin-sdk/telegram-runtime.js").sendMessageTelegram;
+    sendPollTelegram: typeof import("../../plugin-sdk/telegram-runtime.js").sendPollTelegram;
+    monitorTelegramProvider: typeof import("../../plugin-sdk/telegram-runtime.js").monitorTelegramProvider;
+    messageActions: typeof import("../../plugin-sdk/telegram-runtime.js").telegramMessageActions;
     threadBindings: {
-      setIdleTimeoutBySessionKey: typeof import("../../plugin-sdk/telegram.js").setTelegramThreadBindingIdleTimeoutBySessionKey;
-      setMaxAgeBySessionKey: typeof import("../../plugin-sdk/telegram.js").setTelegramThreadBindingMaxAgeBySessionKey;
+      setIdleTimeoutBySessionKey: typeof import("../../plugin-sdk/telegram-runtime.js").setTelegramThreadBindingIdleTimeoutBySessionKey;
+      setMaxAgeBySessionKey: typeof import("../../plugin-sdk/telegram-runtime.js").setTelegramThreadBindingMaxAgeBySessionKey;
     };
     typing: {
-      pulse: typeof import("../../plugin-sdk/telegram.js").sendTypingTelegram;
+      pulse: typeof import("../../plugin-sdk/telegram-runtime.js").sendTypingTelegram;
       start: (params: {
         to: string;
         accountId?: string;
@@ -173,8 +173,8 @@ export type PluginRuntimeChannel = {
       }>;
     };
     conversationActions: {
-      editMessage: typeof import("../../plugin-sdk/telegram.js").editMessageTelegram;
-      editReplyMarkup: typeof import("../../plugin-sdk/telegram.js").editMessageReplyMarkupTelegram;
+      editMessage: typeof import("../../plugin-sdk/telegram-runtime.js").editMessageTelegram;
+      editReplyMarkup: typeof import("../../plugin-sdk/telegram-runtime.js").editMessageReplyMarkupTelegram;
       clearReplyMarkup: (
         chatIdInput: string | number,
         messageIdInput: string | number,
@@ -182,15 +182,15 @@ export type PluginRuntimeChannel = {
           token?: string;
           accountId?: string;
           verbose?: boolean;
-          api?: import("../../plugin-sdk/telegram.js").TelegramApiOverride;
+          api?: import("../../plugin-sdk/telegram-runtime.js").TelegramApiOverride;
           retry?: import("../../infra/retry.js").RetryConfig;
           cfg?: ReturnType<typeof import("../../config/config.js").loadConfig>;
         },
       ) => Promise<{ ok: true; messageId: string; chatId: string }>;
-      deleteMessage: typeof import("../../plugin-sdk/telegram.js").deleteMessageTelegram;
-      renameTopic: typeof import("../../plugin-sdk/telegram.js").renameForumTopicTelegram;
-      pinMessage: typeof import("../../plugin-sdk/telegram.js").pinMessageTelegram;
-      unpinMessage: typeof import("../../plugin-sdk/telegram.js").unpinMessageTelegram;
+      deleteMessage: typeof import("../../plugin-sdk/telegram-runtime.js").deleteMessageTelegram;
+      renameTopic: typeof import("../../plugin-sdk/telegram-runtime.js").renameForumTopicTelegram;
+      pinMessage: typeof import("../../plugin-sdk/telegram-runtime.js").pinMessageTelegram;
+      unpinMessage: typeof import("../../plugin-sdk/telegram-runtime.js").unpinMessageTelegram;
     };
   };
   matrix: {
