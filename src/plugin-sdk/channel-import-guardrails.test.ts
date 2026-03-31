@@ -373,6 +373,8 @@ function collectExtensionFiles(extensionId: string): string[] {
       normalizedFullPath.includes(".spec.") ||
       normalizedFullPath.includes(".fixture.") ||
       normalizedFullPath.includes(".snap") ||
+      normalizedFullPath.includes("test-support") ||
+      entryName === "test-support.ts" ||
       entryName === "runtime-api.ts",
   });
   extensionFilesCache.set(extensionId, files);
@@ -518,11 +520,11 @@ describe("channel import guardrails", () => {
 
   it("keeps bundled extension source files off root and compat plugin-sdk imports", () => {
     for (const file of collectExtensionSourceFiles()) {
-      const analysis = getSourceAnalysis(file);
-      expect(analysis.text, `${file} should not import openclaw/plugin-sdk root`).not.toMatch(
+      const text = readSource(file);
+      expect(text, `${file} should not import openclaw/plugin-sdk root`).not.toMatch(
         /["']openclaw\/plugin-sdk["']/,
       );
-      expect(analysis.text, `${file} should not import openclaw/plugin-sdk/compat`).not.toMatch(
+      expect(text, `${file} should not import openclaw/plugin-sdk/compat`).not.toMatch(
         /["']openclaw\/plugin-sdk\/compat["']/,
       );
     }
@@ -531,8 +533,8 @@ describe("channel import guardrails", () => {
   it("keeps bundled extension source files off legacy core send-deps src imports", () => {
     const legacyCoreSendDepsImport = /["'][^"']*src\/infra\/outbound\/send-deps\.[cm]?[jt]s["']/;
     for (const file of collectExtensionSourceFiles()) {
-      const analysis = getSourceAnalysis(file);
-      expect(analysis.text, `${file} should not import src/infra/outbound/send-deps.*`).not.toMatch(
+      const text = readSource(file);
+      expect(text, `${file} should not import src/infra/outbound/send-deps.*`).not.toMatch(
         legacyCoreSendDepsImport,
       );
     }
@@ -540,8 +542,8 @@ describe("channel import guardrails", () => {
 
   it("keeps core production files off plugin-private src imports", () => {
     for (const file of collectCoreSourceFiles()) {
-      const analysis = getSourceAnalysis(file);
-      expect(analysis.text, `${file} should not import plugin-private src paths`).not.toMatch(
+      const text = readSource(file);
+      expect(text, `${file} should not import plugin-private src paths`).not.toMatch(
         /["'][^"']*extensions\/[^/"']+\/src\//,
       );
     }
@@ -586,7 +588,7 @@ describe("channel import guardrails", () => {
         ) {
           continue;
         }
-        const { text } = getSourceAnalysis(file);
+        const text = readSource(file);
         expect(
           text,
           `${normalized} should import ${extensionId} helpers via the local api barrel`,
