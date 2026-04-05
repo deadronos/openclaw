@@ -55,7 +55,7 @@ import {
 } from "../plugins/channel-plugin-ids.js";
 import { getGlobalHookRunner, runGlobalGatewayStopSafely } from "../plugins/hook-runner-global.js";
 import { createEmptyPluginRegistry } from "../plugins/registry.js";
-import { setActivePluginRegistry } from "../plugins/runtime.js";
+import { getActivePluginRegistry, setActivePluginRegistry } from "../plugins/runtime.js";
 import { createPluginRuntime } from "../plugins/runtime/index.js";
 import type { PluginServicesHandle } from "../plugins/services.js";
 import { getTotalQueueSize } from "../process/command-queue.js";
@@ -77,6 +77,7 @@ import { onSessionTranscriptUpdate } from "../sessions/transcript-events.js";
 import {
   getInspectableTaskRegistrySummary,
   startTaskRegistryMaintenance,
+  stopTaskRegistryMaintenance,
 } from "../tasks/task-registry.maintenance.js";
 import { runSetupWizard } from "../wizard/setup.js";
 import { createAuthRateLimiter, type AuthRateLimiter } from "./auth-rate-limit.js";
@@ -88,6 +89,7 @@ import {
   GATEWAY_EVENT_UPDATE_AVAILABLE,
   type GatewayUpdateAvailableEventPayload,
 } from "./events.js";
+import { createExecApprovalIosPushDelivery } from "./exec-approval-ios-push.js";
 import { ExecApprovalManager } from "./exec-approval-manager.js";
 import { startMcpLoopbackServer } from "./mcp-http.js";
 import { startGatewayModelPricingRefresh } from "./model-pricing-cache.js";
@@ -614,7 +616,8 @@ export async function startGatewayServer(
       preferSetupRuntimeForChannelPlugins: deferredConfiguredChannelPluginIds.length > 0,
     }));
   } else {
-    setActivePluginRegistry(emptyPluginRegistry);
+    pluginRegistry = getActivePluginRegistry() ?? emptyPluginRegistry;
+    setActivePluginRegistry(pluginRegistry);
   }
   const channelLogs = Object.fromEntries(
     listChannelPlugins().map((plugin) => [plugin.id, logChannels.child(plugin.id)]),
@@ -1201,8 +1204,10 @@ export async function startGatewayServer(
 
     const execApprovalManager = new ExecApprovalManager();
     const execApprovalForwarder = createExecApprovalForwarder();
+    const execApprovalIosPushDelivery = createExecApprovalIosPushDelivery({ log });
     const execApprovalHandlers = createExecApprovalHandlers(execApprovalManager, {
       forwarder: execApprovalForwarder,
+      iosPushDelivery: execApprovalIosPushDelivery,
     });
     const pluginApprovalManager = new ExecApprovalManager<
       import("../infra/plugin-approvals.js").PluginApprovalRequestPayload
@@ -1529,6 +1534,7 @@ export async function startGatewayServer(
     cron,
     heartbeatRunner,
     updateCheckStop: stopGatewayUpdateCheck,
+    stopTaskRegistryMaintenance,
     nodePresenceTimers,
     broadcast,
     tickInterval,

@@ -4,6 +4,7 @@ import { resetLogger, setLoggerOverride } from "../logging/logger.js";
 import {
   buildAllowedModelSet,
   inferUniqueProviderFromConfiguredModels,
+  isCliProvider,
   parseModelRef,
   buildModelAliasIndex,
   normalizeModelSelection,
@@ -130,6 +131,12 @@ describe("model-selection", () => {
     });
   });
 
+  describe("isCliProvider", () => {
+    it("treats claude-cli as a CLI provider even without explicit cliBackends config", () => {
+      expect(isCliProvider("claude-cli", {} as OpenClawConfig)).toBe(true);
+    });
+  });
+
   describe("modelKey", () => {
     it("keeps canonical OpenRouter native ids without duplicating the provider", () => {
       expect(modelKey("openrouter", "openrouter/hunter-alpha")).toBe("openrouter/hunter-alpha");
@@ -222,6 +229,12 @@ describe("model-selection", () => {
         variants: ["openrouter/anthropic/claude-sonnet-4-6"],
         defaultProvider: "openai",
         expected: { provider: "openrouter", model: "anthropic/claude-sonnet-4-6" },
+      },
+      {
+        name: "strips duplicate Hugging Face provider prefixes",
+        variants: ["huggingface/deepseek-ai/DeepSeek-R1"],
+        defaultProvider: "huggingface",
+        expected: { provider: "huggingface", model: "deepseek-ai/DeepSeek-R1" },
       },
       {
         name: "normalizes Vercel Claude shorthand to anthropic-prefixed model ids",
@@ -779,6 +792,36 @@ describe("model-selection", () => {
         expect(warning).toContain('Falling back to "google/claude-3-5-sonnet"');
         expect(warning).not.toContain("\u001B");
         expect(warning).not.toContain("\n");
+      } finally {
+        warnSpy.mockRestore();
+        setLoggerOverride(null);
+        resetLogger();
+      }
+    });
+
+    it("infers a unique configured provider for bare default model strings", () => {
+      setLoggerOverride({ level: "silent", consoleLevel: "warn" });
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const cfg = {
+          agents: {
+            defaults: {
+              model: { primary: "claude-opus-4-6" },
+              models: {
+                "anthropic/claude-opus-4-6": {},
+              },
+            },
+          },
+        } as OpenClawConfig;
+
+        const result = resolveConfiguredModelRef({
+          cfg,
+          defaultProvider: "openai",
+          defaultModel: "gpt-5.4",
+        });
+
+        expect(result).toEqual({ provider: "anthropic", model: "claude-opus-4-6" });
+        expect(warnSpy).not.toHaveBeenCalled();
       } finally {
         warnSpy.mockRestore();
         setLoggerOverride(null);
