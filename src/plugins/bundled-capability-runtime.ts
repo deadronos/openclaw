@@ -7,6 +7,7 @@ import {
   withBundledPluginEnablementCompat,
   withBundledPluginVitestCompat,
 } from "./bundled-compat.js";
+import { resolveBundledPluginRepoEntryPath } from "./bundled-plugin-metadata.js";
 import { createCapturedPluginRegistration } from "./captured-registration.js";
 import { discoverOpenClawPlugins } from "./discovery.js";
 import type { PluginLoadOptions } from "./loader.js";
@@ -119,7 +120,6 @@ function createCapabilityPluginRecord(params: {
     toolNames: [],
     hookNames: [],
     channelIds: [],
-    cliBackendIds: [],
     providerIds: [],
     speechProviderIds: [],
     realtimeTranscriptionProviderIds: [],
@@ -127,6 +127,7 @@ function createCapabilityPluginRecord(params: {
     mediaUnderstandingProviderIds: [],
     imageGenerationProviderIds: [],
     videoGenerationProviderIds: [],
+    musicGenerationProviderIds: [],
     webFetchProviderIds: [],
     webSearchProviderIds: [],
     memoryEmbeddingProviderIds: [],
@@ -213,6 +214,7 @@ export function loadBundledCapabilityRuntimeRegistry(params: {
     manifestRegistry.plugins.map((record) => [record.rootDir, record]),
   );
   const seenPluginIds = new Set<string>();
+  const repoRoot = process.cwd();
 
   for (const candidate of discovery.candidates) {
     const manifest = manifestByRoot.get(candidate.rootDir);
@@ -229,15 +231,22 @@ export function loadBundledCapabilityRuntimeRegistry(params: {
       name: manifest.name,
       description: manifest.description,
       version: manifest.version,
-      source: candidate.source,
+      source:
+        env?.VITEST && params.pluginSdkResolution === "dist"
+          ? (resolveBundledPluginRepoEntryPath({
+              rootDir: repoRoot,
+              pluginId: manifest.id,
+              preferBuilt: true,
+            }) ?? candidate.source)
+          : candidate.source,
       rootDir: candidate.rootDir,
       workspaceDir: candidate.workspaceDir,
     });
 
     const opened = openBoundaryFileSync({
-      absolutePath: candidate.source,
-      rootPath: candidate.rootDir,
-      boundaryLabel: "plugin root",
+      absolutePath: record.source,
+      rootPath: record.source === candidate.source ? candidate.rootDir : repoRoot,
+      boundaryLabel: record.source === candidate.source ? "plugin root" : "repo root",
       rejectHardlinks: false,
       skipLexicalRootCheck: true,
     });
@@ -273,7 +282,6 @@ export function loadBundledCapabilityRuntimeRegistry(params: {
     try {
       const captured = createCapturedPluginRegistration();
       void register(captured.api);
-      record.cliBackendIds.push(...captured.cliBackends.map((entry) => entry.id));
       record.providerIds.push(...captured.providers.map((entry) => entry.id));
       record.speechProviderIds.push(...captured.speechProviders.map((entry) => entry.id));
       record.realtimeTranscriptionProviderIds.push(
@@ -291,6 +299,9 @@ export function loadBundledCapabilityRuntimeRegistry(params: {
       record.videoGenerationProviderIds.push(
         ...captured.videoGenerationProviders.map((entry) => entry.id),
       );
+      record.musicGenerationProviderIds.push(
+        ...captured.musicGenerationProviders.map((entry) => entry.id),
+      );
       record.webFetchProviderIds.push(...captured.webFetchProviders.map((entry) => entry.id));
       record.webSearchProviderIds.push(...captured.webSearchProviders.map((entry) => entry.id));
       record.memoryEmbeddingProviderIds.push(
@@ -298,15 +309,6 @@ export function loadBundledCapabilityRuntimeRegistry(params: {
       );
       record.toolNames.push(...captured.tools.map((entry) => entry.name));
 
-      registry.cliBackends?.push(
-        ...captured.cliBackends.map((backend) => ({
-          pluginId: record.id,
-          pluginName: record.name,
-          backend,
-          source: record.source,
-          rootDir: record.rootDir,
-        })),
-      );
       registry.providers.push(
         ...captured.providers.map((provider) => ({
           pluginId: record.id,
@@ -363,6 +365,15 @@ export function loadBundledCapabilityRuntimeRegistry(params: {
       );
       registry.videoGenerationProviders.push(
         ...captured.videoGenerationProviders.map((provider) => ({
+          pluginId: record.id,
+          pluginName: record.name,
+          provider,
+          source: record.source,
+          rootDir: record.rootDir,
+        })),
+      );
+      registry.musicGenerationProviders.push(
+        ...captured.musicGenerationProviders.map((provider) => ({
           pluginId: record.id,
           pluginName: record.name,
           provider,
