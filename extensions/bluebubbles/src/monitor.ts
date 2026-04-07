@@ -1,8 +1,14 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { safeEqualSecret } from "openclaw/plugin-sdk/browser-security-runtime";
+import { formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";
 import { isPrivateNetworkOptInEnabled } from "openclaw/plugin-sdk/ssrf-runtime";
+import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/text-runtime";
 import { createBlueBubblesDebounceRegistry } from "./monitor-debounce.js";
-import { normalizeWebhookMessage, normalizeWebhookReaction } from "./monitor-normalize.js";
+import {
+  asRecord,
+  normalizeWebhookMessage,
+  normalizeWebhookReaction,
+} from "./monitor-normalize.js";
 import { logVerbose, processMessage, processReaction } from "./monitor-processing.js";
 import {
   _resetBlueBubblesShortIdState,
@@ -88,15 +94,9 @@ function parseBlueBubblesWebhookPayload(
     try {
       return { ok: true, value: JSON.parse(payload) as unknown };
     } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      return { ok: false, error: formatErrorMessage(error) };
     }
   }
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
 }
 
 function maskSecret(value: string): string {
@@ -111,7 +111,7 @@ function normalizeAuthToken(raw: string): string {
   if (!value) {
     return "";
   }
-  if (value.toLowerCase().startsWith("bearer ")) {
+  if (normalizeLowercaseStringOrEmpty(value).startsWith("bearer ")) {
     return value.slice("bearer ".length).trim();
   }
   return value;
