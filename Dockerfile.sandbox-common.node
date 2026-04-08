@@ -24,6 +24,12 @@ ARG INSTALL_INFRA_TOOLS=0
 ARG INFRA_BREW_FORMULAE="kubectl helm terraform ansible"
 # Peekaboo is darwin-focused; keep disabled by default in Linux sandboxes.
 ARG INSTALL_PEEKABOO=0
+ARG INSTALL_SSH=1
+ARG INSTALL_FFMPEG=1
+ARG INSTALL_RSYNC=1
+ARG INSTALL_TMUX=1
+ARG INSTALL_IMAGEMAGICK=1
+ARG INSTALL_GHOSTSCRIPT=1
 ARG FINAL_USER=openclaw
 
 ENV LOCAL_BIN_DIR=/home/${FINAL_USER}/.local/bin
@@ -115,6 +121,33 @@ fi
 
 RUN if [ "${INSTALL_PEEKABOO}" = "1" ] && [ "${INSTALL_BREW}" = "1" ]; then \
   su - linuxbrew -c "${BREW_INSTALL_DIR}/bin/brew tap steipete/tap && ${BREW_INSTALL_DIR}/bin/brew install steipete/tap/peekaboo"; \
+fi
+
+RUN if [ "${INSTALL_SSH}" = "1" ]; then \
+  apt-get install openssh-client; \
+  mkdir -p /home/${FINAL_USER}/.ssh; \
+  chown ${FINAL_USER}:${FINAL_USER} /home/${FINAL_USER}/.ssh; \
+  chmod 700 /home/${FINAL_USER}/.ssh; \
+fi
+
+RUN if [ "${INSTALL_TMUX}}" = "1" ]; then \
+  apt-get install tmux; \
+fi
+
+RUN if [ "${INSTALL_RSYNC}" = "1" ]; then \
+  apt-get install rsync; \
+fi
+
+RUN if [ "${INSTALL_FFMPEG}" = "1" ]; then \
+  apt-get install ffmpeg; \
+fi
+
+RUN if [ "${INSTALL_IMAGEMAGICK}" = "1" ]; then \
+  apt-get install imagemagick; \
+fi
+
+RUN if [ "${INSTALL_GHOSTSCRIPT}" = "1" ]; then \
+  apt-get install ghostscript; \
 fi
 
 
