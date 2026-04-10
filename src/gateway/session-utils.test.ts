@@ -7,6 +7,7 @@ import type { OpenClawConfig } from "../config/config.js";
 import type { SessionEntry } from "../config/sessions.js";
 import { withStateDirEnv } from "../test-helpers/state-dir-env.js";
 import {
+  buildGatewaySessionRow,
   capArrayByJsonBytes,
   classifySessionKey,
   deriveSessionTitle,
@@ -727,6 +728,51 @@ describe("listSessionsFromStore selected model display", () => {
 
     expect(result.sessions[0]?.modelProvider).toBe("anthropic");
     expect(result.sessions[0]?.model).toBe("claude-opus-4-6");
+  });
+
+  test("uses transcript model identity when runtime model fields are missing", () => {
+    const sessionsDir = fs.mkdtempSync(path.join(os.tmpdir(), "session-utils-transcript-model-"));
+    const storePath = path.join(sessionsDir, "sessions.json");
+    const sessionId = "12345678-1234-4234-8234-1234567890ab";
+
+    fs.writeFileSync(
+      path.join(sessionsDir, `${sessionId}.jsonl`),
+      [
+        JSON.stringify({ type: "session", version: 1, id: sessionId }),
+        JSON.stringify({
+          message: {
+            role: "assistant",
+            provider: "moonshotai",
+            model: "kimi-k2.5:thinking",
+            usage: {
+              input: 4200,
+              output: 900,
+              cacheRead: 300,
+              cost: { total: 0.12 },
+            },
+          },
+        }),
+      ].join("\n"),
+      "utf8",
+    );
+
+    const row = buildGatewaySessionRow({
+      cfg: createModelDefaultsConfig({
+        primary: "minimax-portal/MiniMax-M2.7",
+      }),
+      storePath,
+      store: {},
+      key: "agent:main:main",
+      entry: {
+        sessionId,
+        updatedAt: Date.now(),
+      } as SessionEntry,
+    });
+
+    expect(row.modelProvider).toBe("moonshotai");
+    expect(row.model).toBe("kimi-k2.5:thinking");
+    expect(row.totalTokens).toBe(4500);
+    expect(row.estimatedCostUsd).toBeCloseTo(0.12, 8);
   });
 });
 
