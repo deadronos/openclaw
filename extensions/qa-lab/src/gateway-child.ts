@@ -6,10 +6,20 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
 import { formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";
+import {
+  applyAuthProfileConfig,
+  upsertAuthProfile,
+  validateAnthropicSetupToken,
+} from "openclaw/plugin-sdk/provider-auth";
+import type { ModelProviderConfig } from "openclaw/plugin-sdk/provider-model-shared";
+import { fetchWithSsrFGuard } from "openclaw/plugin-sdk/ssrf-runtime";
+import { resolvePreferredOpenClawTmpDir } from "openclaw/plugin-sdk/temp-path";
 import { startQaGatewayRpcClient } from "./gateway-rpc-client.js";
+import { splitQaModelRef } from "./model-selection.js";
 import { seedQaAgentWorkspace } from "./qa-agent-workspace.js";
-import { buildQaGatewayConfig } from "./qa-gateway-config.js";
+import { buildQaGatewayConfig, type QaThinkingLevel } from "./qa-gateway-config.js";
 
 const QA_LIVE_ENV_ALIASES = Object.freeze([
   {
@@ -41,6 +51,7 @@ const QA_MOCK_BLOCKED_ENV_VARS = Object.freeze([
   "OPENAI_API_KEY",
   "OPENAI_API_KEYS",
   "OPENAI_BASE_URL",
+  "CODEX_HOME",
   "OPENCLAW_LIVE_ANTHROPIC_KEY",
   "OPENCLAW_LIVE_ANTHROPIC_KEYS",
   "OPENCLAW_LIVE_GEMINI_KEY",
@@ -61,6 +72,17 @@ const QA_MOCK_BLOCKED_ENV_KEY_PATTERNS = Object.freeze([
   /^PLIVO_/i,
   /^NGROK_/i,
 ]);
+
+const QA_LIVE_PROVIDER_CONFIG_PATH_ENV = "OPENCLAW_QA_LIVE_PROVIDER_CONFIG_PATH";
+const QA_LIVE_ANTHROPIC_SETUP_TOKEN_ENV = "OPENCLAW_QA_LIVE_ANTHROPIC_SETUP_TOKEN";
+const QA_LIVE_SETUP_TOKEN_VALUE_ENV = "OPENCLAW_LIVE_SETUP_TOKEN_VALUE";
+const QA_LIVE_ANTHROPIC_SETUP_TOKEN_PROFILE_ENV = "OPENCLAW_QA_LIVE_ANTHROPIC_SETUP_TOKEN_PROFILE";
+const QA_LIVE_ANTHROPIC_SETUP_TOKEN_PROFILE_ID = "anthropic:qa-setup-token";
+const QA_OPENAI_PLUGIN_ID = "openai";
+const QA_LIVE_CLI_BACKEND_PRESERVE_ENV = "OPENCLAW_LIVE_CLI_BACKEND_PRESERVE_ENV";
+const QA_LIVE_CLI_BACKEND_AUTH_MODE_ENV = "OPENCLAW_LIVE_CLI_BACKEND_AUTH_MODE";
+
+export type QaCliBackendAuthMode = "auto" | "api-key" | "subscription";
 
 async function getFreePort() {
   return await new Promise<number>((resolve, reject) => {
@@ -106,6 +128,75 @@ export function normalizeQaProviderModeEnv(
   return env;
 }
 
+function resolveQaLiveCliAuthEnv(
+  baseEnv: NodeJS.ProcessEnv,
+  opts?: {
+    forwardHostHomeForClaudeCli?: boolean;
+    claudeCliAuthMode?: QaCliBackendAuthMode;
+  },
+) {
+  const parsePreservedCliEnv = () => {
+    const raw = baseEnv[QA_LIVE_CLI_BACKEND_PRESERVE_ENV]?.trim();
+    if (raw?.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        return Array.isArray(parsed)
+          ? parsed.filter((entry): entry is string => typeof entry === "string")
+          : [];
+      } catch {
+        return [];
+      }
+    }
+    return (raw ?? "").split(/[,\s]+/).filter((entry) => entry.length > 0);
+  };
+  const renderPreservedCliEnv = (values: string[]) => JSON.stringify([...new Set(values)]);
+  const authMode = opts?.claudeCliAuthMode ?? "auto";
+  const hasAnthropicKey = Boolean(
+    baseEnv.ANTHROPIC_API_KEY?.trim() || baseEnv.OPENCLAW_LIVE_ANTHROPIC_KEY?.trim(),
+  );
+  if (opts?.forwardHostHomeForClaudeCli && authMode === "api-key" && !hasAnthropicKey) {
+    throw new Error(
+      "Claude CLI API-key QA mode requires ANTHROPIC_API_KEY or OPENCLAW_LIVE_ANTHROPIC_KEY",
+    );
+  }
+  const preserveEnvValues = (() => {
+    if (!opts?.forwardHostHomeForClaudeCli) {
+      return undefined;
+    }
+    const values = parsePreservedCliEnv().filter((entry) => entry !== "ANTHROPIC_API_KEY");
+    if (authMode === "api-key" || (authMode === "auto" && hasAnthropicKey)) {
+      values.push("ANTHROPIC_API_KEY");
+    }
+    return renderPreservedCliEnv(values);
+  })();
+  const claudeCliEnv = opts?.forwardHostHomeForClaudeCli
+    ? {
+        [QA_LIVE_CLI_BACKEND_AUTH_MODE_ENV]: authMode,
+        ...(preserveEnvValues ? { [QA_LIVE_CLI_BACKEND_PRESERVE_ENV]: preserveEnvValues } : {}),
+      }
+    : {};
+  const configuredCodexHome = baseEnv.CODEX_HOME?.trim();
+  if (configuredCodexHome) {
+    return {
+      CODEX_HOME: configuredCodexHome,
+      ...claudeCliEnv,
+      ...(opts?.forwardHostHomeForClaudeCli && baseEnv.HOME?.trim()
+        ? { HOME: baseEnv.HOME.trim() }
+        : {}),
+    };
+  }
+  const hostHome = baseEnv.HOME?.trim();
+  if (!hostHome) {
+    return {};
+  }
+  const codexHome = path.join(hostHome, ".codex");
+  return {
+    ...(existsSync(codexHome) ? { CODEX_HOME: codexHome } : {}),
+    ...claudeCliEnv,
+    ...(opts?.forwardHostHomeForClaudeCli ? { HOME: hostHome } : {}),
+  };
+}
+
 export function buildQaRuntimeEnv(params: {
   configPath: string;
   gatewayToken: string;
@@ -118,10 +209,19 @@ export function buildQaRuntimeEnv(params: {
   compatibilityHostVersion?: string;
   providerMode?: "mock-openai" | "live-frontier";
   baseEnv?: NodeJS.ProcessEnv;
+  forwardHostHomeForClaudeCli?: boolean;
+  claudeCliAuthMode?: QaCliBackendAuthMode;
 }) {
+  const baseEnv = params.baseEnv ?? process.env;
   const env: NodeJS.ProcessEnv = {
-    ...(params.baseEnv ?? process.env),
+    ...baseEnv,
     HOME: params.homeDir,
+    ...(params.providerMode === "live-frontier"
+      ? resolveQaLiveCliAuthEnv(baseEnv, {
+          forwardHostHomeForClaudeCli: params.forwardHostHomeForClaudeCli,
+          claudeCliAuthMode: params.claudeCliAuthMode,
+        })
+      : {}),
     OPENCLAW_HOME: params.homeDir,
     OPENCLAW_CONFIG_PATH: params.configPath,
     OPENCLAW_STATE_DIR: params.stateDir,
@@ -144,7 +244,57 @@ export function buildQaRuntimeEnv(params: {
       ? { OPENCLAW_COMPATIBILITY_HOST_VERSION: params.compatibilityHostVersion }
       : {}),
   };
-  return normalizeQaProviderModeEnv(env, params.providerMode);
+  const normalizedEnv = normalizeQaProviderModeEnv(env, params.providerMode);
+  delete normalizedEnv[QA_LIVE_ANTHROPIC_SETUP_TOKEN_ENV];
+  delete normalizedEnv[QA_LIVE_SETUP_TOKEN_VALUE_ENV];
+  return normalizedEnv;
+}
+
+function resolveQaLiveAnthropicSetupToken(env: NodeJS.ProcessEnv = process.env) {
+  const token = (
+    env[QA_LIVE_ANTHROPIC_SETUP_TOKEN_ENV]?.trim() ||
+    env[QA_LIVE_SETUP_TOKEN_VALUE_ENV]?.trim() ||
+    ""
+  ).replaceAll(/\s+/g, "");
+  if (!token) {
+    return null;
+  }
+  const tokenError = validateAnthropicSetupToken(token);
+  if (tokenError) {
+    throw new Error(`Invalid QA Anthropic setup-token: ${tokenError}`);
+  }
+  const profileId =
+    env[QA_LIVE_ANTHROPIC_SETUP_TOKEN_PROFILE_ENV]?.trim() ||
+    QA_LIVE_ANTHROPIC_SETUP_TOKEN_PROFILE_ID;
+  return { token, profileId };
+}
+
+export async function stageQaLiveAnthropicSetupToken(params: {
+  cfg: OpenClawConfig;
+  stateDir: string;
+  env?: NodeJS.ProcessEnv;
+}): Promise<OpenClawConfig> {
+  const resolved = resolveQaLiveAnthropicSetupToken(params.env);
+  if (!resolved) {
+    return params.cfg;
+  }
+  const agentDir = path.join(params.stateDir, "agents", "main", "agent");
+  await fs.mkdir(agentDir, { recursive: true });
+  upsertAuthProfile({
+    profileId: resolved.profileId,
+    credential: {
+      type: "token",
+      provider: "anthropic",
+      token: resolved.token,
+    },
+    agentDir,
+  });
+  return applyAuthProfileConfig(params.cfg, {
+    profileId: resolved.profileId,
+    provider: "anthropic",
+    mode: "token",
+    displayName: "QA setup-token",
+  });
 }
 
 function isRetryableGatewayCallError(details: string): boolean {
@@ -158,9 +308,34 @@ function isRetryableGatewayCallError(details: string): boolean {
   );
 }
 
+async function fetchLocalGatewayHealth(params: {
+  baseUrl: string;
+  healthPath: "/readyz" | "/healthz";
+}): Promise<boolean> {
+  const { response, release } = await fetchWithSsrFGuard({
+    url: `${params.baseUrl}${params.healthPath}`,
+    init: {
+      signal: AbortSignal.timeout(2_000),
+    },
+    policy: { allowPrivateNetwork: true },
+    auditContext: "qa-lab-gateway-child-health",
+  });
+  try {
+    return response.ok;
+  } finally {
+    await release();
+  }
+}
+
 export const __testing = {
   buildQaRuntimeEnv,
+  fetchLocalGatewayHealth,
   isRetryableGatewayCallError,
+  readQaLiveProviderConfigOverrides,
+  resolveQaLiveAnthropicSetupToken,
+  stageQaLiveAnthropicSetupToken,
+  resolveQaLiveCliAuthEnv,
+  resolveQaOwnerPluginIdsForProviderIds,
   resolveQaBundledPluginsSourceRoot,
   resolveQaRuntimeHostVersion,
   createQaBundledPluginsDir,
@@ -178,6 +353,139 @@ function resolveQaBundledPluginsSourceRoot(repoRoot: string) {
     }
   }
   throw new Error("failed to resolve qa bundled plugins source root");
+}
+
+async function resolveQaOwnerPluginIdsForProviderIds(params: {
+  repoRoot: string;
+  providerIds: readonly string[];
+  providerConfigs?: Record<string, ModelProviderConfig>;
+}) {
+  const providerIds = [
+    ...new Set(params.providerIds.map((providerId) => providerId.trim())),
+  ].filter((providerId) => providerId.length > 0);
+  if (providerIds.length === 0) {
+    return [];
+  }
+  const remainingProviderIds = new Set(providerIds);
+  const ownerPluginIds = new Set<string>();
+  const sourceRoot = resolveQaBundledPluginsSourceRoot(params.repoRoot);
+  for (const entry of await fs.readdir(sourceRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const manifestPath = path.join(sourceRoot, entry.name, "openclaw.plugin.json");
+    if (!existsSync(manifestPath)) {
+      continue;
+    }
+    const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8")) as {
+      id?: unknown;
+      providers?: unknown;
+      cliBackends?: unknown;
+    };
+    const pluginId = typeof manifest.id === "string" ? manifest.id.trim() : entry.name;
+    if (!pluginId) {
+      continue;
+    }
+    const ownedIds = new Set(
+      [
+        pluginId,
+        ...(Array.isArray(manifest.providers) ? manifest.providers : []),
+        ...(Array.isArray(manifest.cliBackends) ? manifest.cliBackends : []),
+      ].filter((ownedId): ownedId is string => typeof ownedId === "string"),
+    );
+    for (const providerId of providerIds) {
+      if (!ownedIds.has(providerId)) {
+        continue;
+      }
+      ownerPluginIds.add(pluginId);
+      remainingProviderIds.delete(providerId);
+    }
+  }
+  for (const providerId of remainingProviderIds) {
+    const providerConfig = params.providerConfigs?.[providerId];
+    if (providerConfig && isQaOpenAiResponsesProviderConfig(providerConfig)) {
+      ownerPluginIds.add(QA_OPENAI_PLUGIN_ID);
+      continue;
+    }
+    ownerPluginIds.add(providerId);
+  }
+  return [...ownerPluginIds];
+}
+
+function resolveQaUserPath(value: string, env: NodeJS.ProcessEnv = process.env) {
+  if (value === "~") {
+    return env.HOME ?? os.homedir();
+  }
+  if (value.startsWith("~/")) {
+    return path.join(env.HOME ?? os.homedir(), value.slice(2));
+  }
+  return path.resolve(value);
+}
+
+function resolveQaLiveProviderConfigPath(env: NodeJS.ProcessEnv = process.env) {
+  const explicit =
+    env[QA_LIVE_PROVIDER_CONFIG_PATH_ENV]?.trim() || env.OPENCLAW_CONFIG_PATH?.trim();
+  return explicit
+    ? { path: resolveQaUserPath(explicit, env), explicit: true }
+    : { path: path.join(os.homedir(), ".openclaw", "openclaw.json"), explicit: false };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isQaModelProviderConfig(value: unknown): value is ModelProviderConfig {
+  return isRecord(value) && typeof value.baseUrl === "string" && Array.isArray(value.models);
+}
+
+function isQaOpenAiResponsesProviderConfig(config: ModelProviderConfig) {
+  return (
+    config.api === "openai-responses" ||
+    config.models.some((model) => model.api === "openai-responses")
+  );
+}
+
+async function readQaLiveProviderConfigOverrides(params: {
+  providerIds: readonly string[];
+  env?: NodeJS.ProcessEnv;
+}) {
+  const providerIds = [
+    ...new Set(params.providerIds.map((providerId) => providerId.trim())),
+  ].filter((providerId) => providerId.length > 0);
+  if (providerIds.length === 0) {
+    return {};
+  }
+  const configPath = resolveQaLiveProviderConfigPath(params.env);
+  if (!existsSync(configPath.path)) {
+    return {};
+  }
+  try {
+    const raw = await fs.readFile(configPath.path, "utf8");
+    const parsed = JSON.parse(raw) as unknown;
+    const providers = isRecord(parsed)
+      ? isRecord(parsed.models)
+        ? isRecord(parsed.models.providers)
+          ? parsed.models.providers
+          : {}
+        : {}
+      : {};
+    const selected: Record<string, ModelProviderConfig> = {};
+    for (const providerId of providerIds) {
+      const providerConfig = providers[providerId];
+      if (isQaModelProviderConfig(providerConfig)) {
+        selected[providerId] = providerConfig;
+      }
+    }
+    return selected;
+  } catch (error) {
+    if (configPath.explicit) {
+      throw new Error(
+        `failed to read ${QA_LIVE_PROVIDER_CONFIG_PATH_ENV} provider config: ${formatErrorMessage(error)}`,
+        { cause: error },
+      );
+    }
+    return {};
+  }
 }
 
 function parseStableSemverFloor(value: string | undefined) {
@@ -326,12 +634,9 @@ async function waitForGatewayReady(params: {
         `gateway exited before becoming healthy (exitCode=${String(params.child.exitCode)}, signal=${String(params.child.signalCode)}):\n${params.logs()}`,
       );
     }
-    for (const healthPath of ["/readyz", "/healthz"]) {
+    for (const healthPath of ["/readyz", "/healthz"] as const) {
       try {
-        const response = await fetch(`${params.baseUrl}${healthPath}`, {
-          signal: AbortSignal.timeout(2_000),
-        });
-        if (response.ok) {
+        if (await fetchLocalGatewayHealth({ baseUrl: params.baseUrl, healthPath })) {
           return;
         }
       } catch {
@@ -371,9 +676,14 @@ export async function startQaGatewayChild(params: {
   primaryModel?: string;
   alternateModel?: string;
   fastMode?: boolean;
+  thinkingDefault?: QaThinkingLevel;
+  claudeCliAuthMode?: QaCliBackendAuthMode;
   controlUiEnabled?: boolean;
+  mutateConfig?: (cfg: OpenClawConfig) => OpenClawConfig;
 }) {
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-qa-suite-"));
+  const tempRoot = await fs.mkdtemp(
+    path.join(resolvePreferredOpenClawTmpDir(), "openclaw-qa-suite-"),
+  );
   const runtimeCwd = tempRoot;
   const distEntryPath = path.join(params.repoRoot, "dist", "index.js");
   const workspaceDir = path.join(tempRoot, "workspace");
@@ -396,7 +706,26 @@ export async function startQaGatewayChild(params: {
     fs.mkdir(xdgDataHome, { recursive: true }),
     fs.mkdir(xdgCacheHome, { recursive: true }),
   ]);
-  const cfg = buildQaGatewayConfig({
+  const liveProviderIds =
+    params.providerMode === "live-frontier"
+      ? [params.primaryModel, params.alternateModel]
+          .map((modelRef) =>
+            typeof modelRef === "string" ? splitQaModelRef(modelRef)?.provider : undefined,
+          )
+          .filter((providerId): providerId is string => Boolean(providerId))
+      : [];
+  const liveProviderConfigs = await readQaLiveProviderConfigOverrides({
+    providerIds: liveProviderIds,
+  });
+  const enabledPluginIds =
+    liveProviderIds.length > 0
+      ? await resolveQaOwnerPluginIdsForProviderIds({
+          repoRoot: params.repoRoot,
+          providerIds: liveProviderIds,
+          providerConfigs: liveProviderConfigs,
+        })
+      : undefined;
+  let cfg = buildQaGatewayConfig({
     bind: "loopback",
     gatewayPort,
     gatewayToken,
@@ -411,10 +740,21 @@ export async function startQaGatewayChild(params: {
     providerMode: params.providerMode,
     primaryModel: params.primaryModel,
     alternateModel: params.alternateModel,
+    enabledPluginIds,
+    liveProviderConfigs,
     fastMode: params.fastMode,
+    thinkingDefault: params.thinkingDefault,
     controlUiEnabled: params.controlUiEnabled,
   });
-  await fs.writeFile(configPath, `${JSON.stringify(cfg, null, 2)}\n`, "utf8");
+  cfg = await stageQaLiveAnthropicSetupToken({
+    cfg,
+    stateDir,
+  });
+  cfg = params.mutateConfig ? params.mutateConfig(cfg) : cfg;
+  await fs.writeFile(configPath, `${JSON.stringify(cfg, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
   const allowedPluginIds = [...(cfg.plugins?.allow ?? []), "openai"].filter(
     (pluginId, index, array): pluginId is string => {
       return (
@@ -452,6 +792,8 @@ export async function startQaGatewayChild(params: {
     bundledPluginsDir,
     compatibilityHostVersion: runtimeHostVersion,
     providerMode: params.providerMode,
+    forwardHostHomeForClaudeCli: liveProviderIds.includes("claude-cli"),
+    claudeCliAuthMode: params.claudeCliAuthMode,
   });
 
   const child = spawn(
