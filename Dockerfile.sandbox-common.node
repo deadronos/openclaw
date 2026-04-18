@@ -30,6 +30,7 @@ ARG INSTALL_RSYNC=1
 ARG INSTALL_TMUX=1
 ARG INSTALL_IMAGEMAGICK=1
 ARG INSTALL_GHOSTSCRIPT=1
+ARG INSTALL_CONVEX=1
 ARG FINAL_USER=openclaw
 
 ENV LOCAL_BIN_DIR=/home/${FINAL_USER}/.local/bin
@@ -150,6 +151,9 @@ RUN if [ "${INSTALL_GHOSTSCRIPT}" = "1" ]; then \
   apt-get install ghostscript; \
 fi
 
+RUN if [ "${INSTALL_CONVEX}" = "1" ]; then \
+  npm install -g convex; \
+fi
 
 # Install uv + tools globally so /home bind mounts do not hide them at runtime.
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
