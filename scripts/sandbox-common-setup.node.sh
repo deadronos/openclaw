@@ -3,7 +3,7 @@ set -euo pipefail
 
 BASE_IMAGE="${BASE_IMAGE:-openclaw-sandbox-custom:trixie-slim}"
 TARGET_IMAGE="${TARGET_IMAGE:-openclaw-sandbox-common-custom:trixie-slim}"
-PACKAGES="${PACKAGES:-curl wget jq yq coreutils grep nodejs npm python3 python3-pip git ca-certificates \
+PACKAGES="${PACKAGES:-curl wget jq yq coreutils iputils-ping grep nodejs npm python3 python3-pip git ca-certificates \
 golang-go rustc cargo unzip zip pkg-config libasound2-dev build-essential cmake file sqlite3 \
 ripgrep procps nano fd-find openssh-client less locales tzdata mc tree fzf bat eza tmux vim rsync \
 gh yt-dlp ffmpeg}"
