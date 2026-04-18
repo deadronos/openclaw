@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CodexCliCredential } from "./cli-credentials.js";
+import type { OAuthCredential } from "./auth-profiles/types.js";
 
 const { readCodexCliCredentialsCachedMock } = vi.hoisted(() => ({
-  readCodexCliCredentialsCachedMock: vi.fn((): CodexCliCredential | null => null),
+  readCodexCliCredentialsCachedMock: vi.fn<() => OAuthCredential | null>(() => null),
 }));
 
 vi.mock("./cli-credentials.js", () => ({
@@ -138,6 +138,96 @@ describe("buildAuthHealthSummary", () => {
 
     const statuses = profileStatuses(summary);
     expect(statuses["openai-codex:default"]).toBe("ok");
+  });
+
+  it("keeps healthy local oauth over fresher imported Codex CLI credentials in health status", () => {
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    readCodexCliCredentialsCachedMock.mockReturnValue({
+      type: "oauth",
+      provider: "openai-codex",
+      access: "fresh-cli-access",
+      refresh: "fresh-cli-refresh",
+      expires: now + 7 * DEFAULT_OAUTH_WARN_MS,
+      accountId: "acct-cli",
+    });
+    const store = {
+      version: 1,
+      profiles: {
+        "openai-codex:default": {
+          type: "oauth" as const,
+          provider: "openai-codex",
+          access: "healthy-local-access",
+          refresh: "healthy-local-refresh",
+          expires: now + DEFAULT_OAUTH_WARN_MS + 10_000,
+        },
+      },
+    };
+
+    const summary = buildAuthHealthSummary({
+      store,
+      warnAfterMs: DEFAULT_OAUTH_WARN_MS,
+    });
+
+    const profile = summary.profiles.find((entry) => entry.profileId === "openai-codex:default");
+    expect(profile?.status).toBe("ok");
+    expect(profile?.expiresAt).toBe(now + DEFAULT_OAUTH_WARN_MS + 10_000);
+  });
+
+  it("marks oauth as expiring when it falls within the shared refresh margin", () => {
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    const store = {
+      version: 1,
+      profiles: {
+        "openai-codex:default": {
+          type: "oauth" as const,
+          provider: "openai-codex",
+          access: "near-expiry-access",
+          refresh: "near-expiry-refresh",
+          expires: now + 2 * 60_000,
+        },
+      },
+    };
+
+    const summary = buildAuthHealthSummary({
+      store,
+      warnAfterMs: 60_000,
+    });
+
+    const profile = summary.profiles.find((entry) => entry.profileId === "openai-codex:default");
+    expect(profile?.status).toBe("expiring");
+  });
+
+  it("prefers fresher imported external OAuth when the local credential is near expiry", () => {
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    readCodexCliCredentialsCachedMock.mockReturnValue({
+      type: "oauth",
+      provider: "openai-codex",
+      access: "fresh-cli-access",
+      refresh: "fresh-cli-refresh",
+      expires: now + DEFAULT_OAUTH_WARN_MS + 60_000,
+      accountId: "acct-cli",
+    });
+    const store = {
+      version: 1,
+      profiles: {
+        "openai-codex:default": {
+          type: "oauth" as const,
+          provider: "openai-codex",
+          access: "near-expiry-local-access",
+          refresh: "near-expiry-local-refresh",
+          expires: now + 2 * 60_000,
+        },
+      },
+    };
+
+    const summary = buildAuthHealthSummary({
+      store,
+      warnAfterMs: 60_000,
+    });
+
+    const profile = summary.profiles.find((entry) => entry.profileId === "openai-codex:default");
+    expect(profile?.status).toBe("ok");
+    expect(profile?.expiresAt).toBe(now + DEFAULT_OAUTH_WARN_MS + 60_000);
   });
 
   it("marks token profiles with invalid expires as missing with reason code", () => {
