@@ -143,6 +143,26 @@ describe("resolveBuildAllSteps", () => {
     ]);
   });
 
+  it("uses a minimal built runtime profile for gateway watch regression", () => {
+    expect(resolveBuildAllSteps("gatewayWatch").map((step) => step.label)).toEqual([
+      "tsdown",
+      "runtime-postbuild",
+      "build-stamp",
+    ]);
+  });
+
+  it("does not cache plugin-sdk entry shims over compiled JS", () => {
+    const step = BUILD_ALL_STEPS.find((entry) => entry.label === "write-plugin-sdk-entry-dts");
+    expect(step).toBeTruthy();
+    expect(step?.cache).toBeUndefined();
+  });
+
+  it("does not cache hook metadata over compiled hook handlers", () => {
+    const step = BUILD_ALL_STEPS.find((entry) => entry.label === "copy-hook-metadata");
+    expect(step).toBeTruthy();
+    expect(step?.cache).toBeUndefined();
+  });
+
   it("rejects unknown build profiles", () => {
     expect(() => resolveBuildAllSteps("wat")).toThrow("Unknown build profile: wat");
   });

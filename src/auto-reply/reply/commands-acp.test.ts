@@ -199,6 +199,24 @@ function resolveFirstConversationTargetForTest(params: {
   return null;
 }
 
+function parsePrefixedConversationIdForTest(
+  raw: string | undefined | null,
+  channel: "bluebubbles" | "imessage",
+): string | undefined {
+  const trimmed = raw
+    ?.trim()
+    .replace(new RegExp(`^${channel}:`, "i"), "")
+    .replace(/^chat_guid:/i, "");
+  return trimmed || undefined;
+}
+
+function resolvePrefixedConversationIdForTest(
+  targets: Array<string | undefined | null>,
+  channel: "bluebubbles" | "imessage",
+): string | undefined {
+  return targets.map((target) => parsePrefixedConversationIdForTest(target, channel)).find(Boolean);
+}
+
 function setMinimalAcpCommandRegistryForTests(): void {
   setActivePluginRegistry(
     createTestRegistry([
@@ -209,7 +227,7 @@ function setMinimalAcpCommandRegistryForTests(): void {
           ...createChannelTestPluginBase({ id: "telegram", label: "Telegram" }),
           conversationBindings: {
             defaultTopLevelPlacement: "current",
-            buildBoundReplyChannelData: ({
+            buildBoundReplyPayload: ({
               operation,
               conversation,
             }: {
@@ -217,7 +235,7 @@ function setMinimalAcpCommandRegistryForTests(): void {
               conversation: { conversationId: string };
             }) =>
               operation === "acp-spawn" && conversation.conversationId.includes(":topic:")
-                ? { telegram: { pin: true } }
+                ? { delivery: { pin: { enabled: true } } }
                 : null,
           },
           bindings: {
@@ -295,6 +313,54 @@ function setMinimalAcpCommandRegistryForTests(): void {
                 commandTo,
                 fallbackTo,
               ]);
+              return conversationId ? { conversationId } : null;
+            },
+          },
+        },
+      },
+      {
+        pluginId: "bluebubbles",
+        source: "test",
+        plugin: {
+          ...createChannelTestPluginBase({ id: "bluebubbles", label: "BlueBubbles" }),
+          bindings: {
+            resolveCommandConversation: ({
+              originatingTo,
+              commandTo,
+              fallbackTo,
+            }: {
+              originatingTo?: string;
+              commandTo?: string;
+              fallbackTo?: string;
+            }) => {
+              const conversationId = resolvePrefixedConversationIdForTest(
+                [originatingTo, commandTo, fallbackTo],
+                "bluebubbles",
+              );
+              return conversationId ? { conversationId } : null;
+            },
+          },
+        },
+      },
+      {
+        pluginId: "imessage",
+        source: "test",
+        plugin: {
+          ...createChannelTestPluginBase({ id: "imessage", label: "iMessage" }),
+          bindings: {
+            resolveCommandConversation: ({
+              originatingTo,
+              commandTo,
+              fallbackTo,
+            }: {
+              originatingTo?: string;
+              commandTo?: string;
+              fallbackTo?: string;
+            }) => {
+              const conversationId = resolvePrefixedConversationIdForTest(
+                [originatingTo, commandTo, fallbackTo],
+                "imessage",
+              );
               return conversationId ? { conversationId } : null;
             },
           },
@@ -1186,7 +1252,7 @@ describe("/acp command", () => {
 
     expect(result?.reply?.text).toContain("Spawned ACP session agent:codex:acp:");
     expect(result?.reply?.text).toContain("Bound this conversation to");
-    expect(result?.reply?.channelData).toEqual({ telegram: { pin: true } });
+    expect(result?.reply?.delivery).toEqual({ pin: { enabled: true } });
     expect(hoisted.sessionBindingBindMock).toHaveBeenCalledWith(
       expect.objectContaining({
         placement: "current",

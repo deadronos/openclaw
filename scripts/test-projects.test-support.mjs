@@ -50,7 +50,15 @@ const CHANNEL_VITEST_CONFIG = "test/vitest/vitest.channels.config.ts";
 const CLI_VITEST_CONFIG = "test/vitest/vitest.cli.config.ts";
 const COMMANDS_LIGHT_VITEST_CONFIG = "test/vitest/vitest.commands-light.config.ts";
 const COMMANDS_VITEST_CONFIG = "test/vitest/vitest.commands.config.ts";
-const CONTRACTS_VITEST_CONFIG = "test/vitest/vitest.contracts.config.ts";
+const CONTRACTS_CHANNEL_CONFIG_VITEST_CONFIG =
+  "test/vitest/vitest.contracts-channel-config.config.ts";
+const CONTRACTS_CHANNEL_REGISTRY_VITEST_CONFIG =
+  "test/vitest/vitest.contracts-channel-registry.config.ts";
+const CONTRACTS_CHANNEL_SESSION_VITEST_CONFIG =
+  "test/vitest/vitest.contracts-channel-session.config.ts";
+const CONTRACTS_CHANNEL_SURFACE_VITEST_CONFIG =
+  "test/vitest/vitest.contracts-channel-surface.config.ts";
+const CONTRACTS_PLUGIN_VITEST_CONFIG = "test/vitest/vitest.contracts-plugin.config.ts";
 const CRON_VITEST_CONFIG = "test/vitest/vitest.cron.config.ts";
 const DAEMON_VITEST_CONFIG = "test/vitest/vitest.daemon.config.ts";
 const E2E_VITEST_CONFIG = "test/vitest/vitest.e2e.config.ts";
@@ -112,7 +120,11 @@ const VITEST_CONFIG_BY_KIND = {
   cli: CLI_VITEST_CONFIG,
   command: COMMANDS_VITEST_CONFIG,
   commandLight: COMMANDS_LIGHT_VITEST_CONFIG,
-  contracts: CONTRACTS_VITEST_CONFIG,
+  contractsChannelConfig: CONTRACTS_CHANNEL_CONFIG_VITEST_CONFIG,
+  contractsChannelRegistry: CONTRACTS_CHANNEL_REGISTRY_VITEST_CONFIG,
+  contractsChannelSession: CONTRACTS_CHANNEL_SESSION_VITEST_CONFIG,
+  contractsChannelSurface: CONTRACTS_CHANNEL_SURFACE_VITEST_CONFIG,
+  contractsPlugin: CONTRACTS_PLUGIN_VITEST_CONFIG,
   cron: CRON_VITEST_CONFIG,
   daemon: DAEMON_VITEST_CONFIG,
   e2e: E2E_VITEST_CONFIG,
@@ -168,12 +180,80 @@ const BROAD_CHANGED_RERUN_PATTERNS = [
   /^vitest(?:\..+)?\.(?:config\.ts|paths\.mjs)$/u,
   /^test\/vitest\/vitest\.(?:config|shared\.config|scoped-config|performance-config)\.ts$/u,
   /^test\/helpers\//u,
-  /^scripts\/run-vitest\.mjs$/u,
-  /^scripts\/test-projects(?:\.test-support)?\.mjs$/u,
 ];
+const TOOLING_SOURCE_TEST_TARGETS = new Map([
+  ["scripts/changed-lanes.mjs", ["test/scripts/changed-lanes.test.ts"]],
+  ["scripts/check-changed.mjs", ["test/scripts/changed-lanes.test.ts"]],
+  ["scripts/lib/vitest-local-scheduling.mjs", ["test/scripts/vitest-local-scheduling.test.ts"]],
+  [
+    "scripts/run-vitest.mjs",
+    ["test/scripts/test-projects.test.ts", "test/scripts/vitest-local-scheduling.test.ts"],
+  ],
+  ["scripts/test-extension-batch.mjs", ["test/scripts/test-extension.test.ts"]],
+  ["scripts/lib/extension-test-plan.mjs", ["test/scripts/test-extension.test.ts"]],
+  ["scripts/lib/vitest-batch-runner.mjs", ["test/scripts/test-extension.test.ts"]],
+  ["scripts/test-projects.mjs", ["test/scripts/test-projects.test.ts"]],
+  ["scripts/test-projects.test-support.d.mts", ["test/scripts/test-projects.test.ts"]],
+  ["scripts/test-projects.test-support.mjs", ["test/scripts/test-projects.test.ts"]],
+]);
+const TOOLING_TEST_TARGETS = new Map([
+  ["test/scripts/changed-lanes.test.ts", ["test/scripts/changed-lanes.test.ts"]],
+  ["test/scripts/test-projects.test.ts", ["test/scripts/test-projects.test.ts"]],
+  [
+    "test/scripts/vitest-local-scheduling.test.ts",
+    ["test/scripts/vitest-local-scheduling.test.ts"],
+  ],
+]);
+const GENERATED_CHANGED_TEST_TARGETS = new Set([
+  "src/canvas-host/a2ui/.bundle.hash",
+  "src/canvas-host/a2ui/a2ui.bundle.js",
+]);
 const VITEST_CONFIG_TARGET_KIND_BY_PATH = new Map(
   Object.entries(VITEST_CONFIG_BY_KIND).map(([kind, config]) => [config, kind]),
 );
+const CHANNEL_CONTRACT_CONFIG_PATTERNS = new Map([
+  [
+    CONTRACTS_CHANNEL_SURFACE_VITEST_CONFIG,
+    [
+      "src/channels/plugins/contracts/channel-catalog.contract.test.ts",
+      "src/channels/plugins/contracts/channel-import-guardrails.test.ts",
+      "src/channels/plugins/contracts/group-policy.fallback.contract.test.ts",
+      "src/channels/plugins/contracts/outbound-payload.contract.test.ts",
+      "src/channels/plugins/contracts/*-shard-a.contract.test.ts",
+      "src/channels/plugins/contracts/*-shard-e.contract.test.ts",
+    ],
+  ],
+  [
+    CONTRACTS_CHANNEL_CONFIG_VITEST_CONFIG,
+    [
+      "src/channels/plugins/contracts/plugins-core.authorize-config-write.policy.contract.test.ts",
+      "src/channels/plugins/contracts/plugins-core.authorize-config-write.targets.contract.test.ts",
+      "src/channels/plugins/contracts/plugins-core.catalog.entries.contract.test.ts",
+      "src/channels/plugins/contracts/*-shard-b.contract.test.ts",
+      "src/channels/plugins/contracts/*-shard-f.contract.test.ts",
+    ],
+  ],
+  [
+    CONTRACTS_CHANNEL_REGISTRY_VITEST_CONFIG,
+    [
+      "src/channels/plugins/contracts/plugins-core.catalog.paths.contract.test.ts",
+      "src/channels/plugins/contracts/plugins-core.loader.contract.test.ts",
+      "src/channels/plugins/contracts/plugins-core.registry.contract.test.ts",
+      "src/channels/plugins/contracts/*-shard-c.contract.test.ts",
+      "src/channels/plugins/contracts/*-shard-g.contract.test.ts",
+    ],
+  ],
+  [
+    CONTRACTS_CHANNEL_SESSION_VITEST_CONFIG,
+    [
+      "src/channels/plugins/contracts/plugins-core.resolve-config-writes.contract.test.ts",
+      "src/channels/plugins/contracts/registry.contract.test.ts",
+      "src/channels/plugins/contracts/session-binding.registry-backed.contract.test.ts",
+      "src/channels/plugins/contracts/*-shard-d.contract.test.ts",
+      "src/channels/plugins/contracts/*-shard-h.contract.test.ts",
+    ],
+  ],
+]);
 
 function normalizePathPattern(value) {
   return value.replaceAll("\\", "/");
@@ -238,8 +318,78 @@ function isVitestConfigTargetForKind(kind, targetArg, cwd) {
   return resolveVitestConfigTargetKind(toRepoRelativeTarget(targetArg, cwd)) === kind;
 }
 
+function resolveChannelContractTargetKind(relative) {
+  if (!relative.startsWith("src/channels/plugins/contracts/")) {
+    return null;
+  }
+  const name = path.posix.basename(relative);
+  if (/-shard-[ae]\.contract\.test\.ts$/u.test(name)) {
+    return "contractsChannelSurface";
+  }
+  if (/-shard-[bf]\.contract\.test\.ts$/u.test(name)) {
+    return "contractsChannelConfig";
+  }
+  if (/-shard-[cg]\.contract\.test\.ts$/u.test(name)) {
+    return "contractsChannelRegistry";
+  }
+  if (/-shard-[dh]\.contract\.test\.ts$/u.test(name)) {
+    return "contractsChannelSession";
+  }
+  if (
+    [
+      "channel-catalog.contract.test.ts",
+      "channel-import-guardrails.test.ts",
+      "group-policy.fallback.contract.test.ts",
+      "outbound-payload.contract.test.ts",
+    ].includes(name)
+  ) {
+    return "contractsChannelSurface";
+  }
+  if (
+    [
+      "plugins-core.authorize-config-write.policy.contract.test.ts",
+      "plugins-core.authorize-config-write.targets.contract.test.ts",
+      "plugins-core.catalog.entries.contract.test.ts",
+    ].includes(name)
+  ) {
+    return "contractsChannelConfig";
+  }
+  if (
+    [
+      "plugins-core.catalog.paths.contract.test.ts",
+      "plugins-core.loader.contract.test.ts",
+      "plugins-core.registry.contract.test.ts",
+    ].includes(name)
+  ) {
+    return "contractsChannelRegistry";
+  }
+  return "contractsChannelSession";
+}
+
 function listChangedPathsFromGit(baseRef, cwd) {
-  return execFileSync("git", ["diff", "--name-only", `${baseRef}...HEAD`], {
+  return [
+    ...new Set([
+      ...runGitNameOnlyDiff(cwd, [`${baseRef}...HEAD`]),
+      ...runGitNameOnlyDiff(cwd, ["--cached", "--diff-filter=ACMR"]),
+      ...runGitNameOnlyDiff(cwd, ["--diff-filter=ACMR"]),
+      ...runGitLsFiles(cwd, ["--others", "--exclude-standard"]),
+    ]),
+  ].toSorted((left, right) => left.localeCompare(right));
+}
+
+function runGitNameOnlyDiff(cwd, extraArgs) {
+  return execFileSync("git", ["diff", "--name-only", ...extraArgs], {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  })
+    .split("\n")
+    .map((line) => normalizePathPattern(line.trim()))
+    .filter((line) => line.length > 0);
+}
+
+function runGitLsFiles(cwd, extraArgs) {
+  return execFileSync("git", ["ls-files", ...extraArgs], {
     cwd,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -290,8 +440,46 @@ function shouldKeepBroadChangedRun(changedPaths) {
   );
 }
 
+function resolveToolingChangedTestTargets(changedPaths) {
+  const targets = [];
+  for (const changedPath of changedPaths) {
+    const testTargets =
+      TOOLING_SOURCE_TEST_TARGETS.get(changedPath) ?? TOOLING_TEST_TARGETS.get(changedPath);
+    if (!testTargets) {
+      return null;
+    }
+    targets.push(...testTargets);
+  }
+  return [...new Set(targets)];
+}
+
 function isRoutableChangedTarget(changedPath) {
+  if (GENERATED_CHANGED_TEST_TARGETS.has(changedPath)) {
+    return false;
+  }
   return /^(?:src|test|extensions|ui|packages)(?:\/|$)/u.test(changedPath);
+}
+
+export function resolveChangedTestTargetPlan(changedPaths) {
+  if (changedPaths.length === 0) {
+    return { mode: "none", targets: [] };
+  }
+  const toolingTargets = resolveToolingChangedTestTargets(changedPaths);
+  if (toolingTargets) {
+    return { mode: "targets", targets: toolingTargets };
+  }
+  if (shouldKeepBroadChangedRun(changedPaths)) {
+    return { mode: "broad", targets: [] };
+  }
+  const changedLanes = detectChangedLanes(changedPaths);
+  if (changedLanes.lanes.all) {
+    return { mode: "broad", targets: [] };
+  }
+  const targets = changedPaths.filter(isRoutableChangedTarget);
+  if (changedLanes.extensionImpactFromCore) {
+    targets.push("extensions");
+  }
+  return { mode: "targets", targets: [...new Set(targets)] };
 }
 
 export function listFullExtensionVitestProjectConfigs() {
@@ -311,19 +499,11 @@ export function resolveChangedTargetArgs(
     return null;
   }
   const changedPaths = listChangedPaths(baseRef, cwd);
-  if (changedPaths.length === 0 || shouldKeepBroadChangedRun(changedPaths)) {
+  const plan = resolveChangedTestTargetPlan(changedPaths);
+  if (plan.mode === "broad") {
     return null;
   }
-  const changedLanes = detectChangedLanes(changedPaths);
-  if (changedLanes.lanes.all) {
-    return null;
-  }
-  const routablePaths = changedPaths.filter(isRoutableChangedTarget);
-  const targets = [...routablePaths];
-  if (changedLanes.extensionImpactFromCore) {
-    targets.push("extensions");
-  }
-  return [...new Set(targets)];
+  return plan.targets;
 }
 
 function classifyTarget(arg, cwd) {
@@ -404,6 +584,13 @@ function classifyTarget(arg, cwd) {
     }
     return isProviderExtensionRoot(extensionRoot) ? "extensionProvider" : "extension";
   }
+  const channelContractKind = resolveChannelContractTargetKind(relative);
+  if (channelContractKind) {
+    return channelContractKind;
+  }
+  if (relative.startsWith("src/plugins/contracts/")) {
+    return "contractsPlugin";
+  }
   if (isChannelSurfaceTestFile(relative)) {
     return "channel";
   }
@@ -413,16 +600,11 @@ function classifyTarget(arg, cwd) {
   if (
     relative.startsWith("test/") ||
     relative.startsWith("src/scripts/") ||
-    relative.startsWith("src/plugins/contracts/") ||
-    relative.startsWith("src/channels/plugins/contracts/") ||
     relative === "src/config/doc-baseline.integration.test.ts" ||
     relative === "src/config/schema.base.generated.test.ts" ||
     relative === "src/config/schema.help.quality.test.ts"
   ) {
-    return relative.startsWith("src/plugins/contracts/") ||
-      relative.startsWith("src/channels/plugins/contracts/")
-      ? "contracts"
-      : "tooling";
+    return "tooling";
   }
   if (isBundledPluginDependentUnitTestFile(relative)) {
     return "bundled";
@@ -602,7 +784,11 @@ export function buildVitestRunPlans(
     "default",
     "boundary",
     "tooling",
-    "contracts",
+    "contractsChannelSurface",
+    "contractsChannelConfig",
+    "contractsChannelRegistry",
+    "contractsChannelSession",
+    "contractsPlugin",
     "bundled",
     "gateway",
     "hooks",
@@ -820,7 +1006,8 @@ export function applyParallelVitestCachePaths(specs, params = {}) {
 
 export function createVitestRunSpecs(args, params = {}) {
   const cwd = params.cwd ?? process.cwd();
-  const plans = buildVitestRunPlans(args, cwd);
+  const baseEnv = params.baseEnv ?? process.env;
+  const plans = filterPlansForContractIncludeFile(buildVitestRunPlans(args, cwd), baseEnv);
   return plans.map((plan, index) => {
     const includeFilePath = plan.includePatterns
       ? path.join(
@@ -832,15 +1019,49 @@ export function createVitestRunSpecs(args, params = {}) {
       config: plan.config,
       env: includeFilePath
         ? {
-            ...(params.baseEnv ?? process.env),
+            ...baseEnv,
             [INCLUDE_FILE_ENV_KEY]: includeFilePath,
           }
-        : (params.baseEnv ?? process.env),
+        : baseEnv,
       includeFilePath,
       includePatterns: plan.includePatterns,
       pnpmArgs: createVitestArgs(plan),
       watchMode: plan.watchMode,
     };
+  });
+}
+
+function loadIncludePatternsForSpecFilter(env) {
+  const filePath = env[INCLUDE_FILE_ENV_KEY]?.trim();
+  if (!filePath) {
+    return null;
+  }
+  const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+  return parsed.filter((value) => typeof value === "string" && value.length > 0);
+}
+
+function includePatternMatchesConfig(candidate, configPatterns) {
+  return configPatterns.some(
+    (pattern) => path.matchesGlob(candidate, pattern) || path.matchesGlob(pattern, candidate),
+  );
+}
+
+function filterPlansForContractIncludeFile(plans, env) {
+  const includePatterns = loadIncludePatternsForSpecFilter(env);
+  if (!includePatterns) {
+    return plans;
+  }
+  return plans.filter((plan) => {
+    const configPatterns = CHANNEL_CONTRACT_CONFIG_PATTERNS.get(plan.config);
+    if (!configPatterns) {
+      return true;
+    }
+    return includePatterns.some((candidate) =>
+      includePatternMatchesConfig(candidate, configPatterns),
+    );
   });
 }
 
