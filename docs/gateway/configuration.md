@@ -100,6 +100,10 @@ The Gateway also keeps a trusted last-known-good copy after a successful startup
 `openclaw.json` is later changed outside OpenClaw and no longer validates, startup
 and hot reload preserve the broken file as a timestamped `.clobbered.*` snapshot,
 restore the last-known-good copy, and log a loud warning with the recovery reason.
+If a status/log line is accidentally prepended before an otherwise valid JSON
+config, gateway startup and `openclaw doctor --fix` can strip the prefix,
+preserve the polluted file as `.clobbered.*`, and continue with the recovered
+JSON.
 The next main-agent turn also receives a system-event warning telling it that the
 config was restored and must not be blindly rewritten. Last-known-good promotion
 is updated after validated startup and after accepted hot reloads, including
@@ -162,6 +166,7 @@ placeholders such as `***` or shortened token values.
     ```
 
     - `agents.defaults.models` defines the model catalog and acts as the allowlist for `/model`.
+    - Use `openclaw config set agents.defaults.models '<json>' --strict-json --merge` to add allowlist entries without removing existing models. Plain replacements that would remove entries are rejected unless you pass `--replace`.
     - Model refs use `provider/model` format (e.g. `anthropic/claude-opus-4-6`).
     - `agents.defaults.imageMaxDimensionPx` controls transcript/tool image downscaling (default `1200`); lower values usually reduce vision-token usage on screenshot-heavy runs.
     - See [Models CLI](/concepts/models) for switching models in chat and [Model Failover](/concepts/model-failover) for auth rotation and fallback behavior.
