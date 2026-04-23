@@ -19,6 +19,7 @@ import type {
   ResponseInput,
   ResponseInputMessageContentList,
 } from "openai/resources/responses/responses.js";
+import { rewriteCopilotConnectionBoundResponseIds } from "../../extensions/github-copilot/connection-bound-ids.js";
 import type { ProviderRuntimeModel } from "../plugins/provider-runtime-model.types.js";
 import { resolveProviderTransportTurnStateWithPlugin } from "../plugins/provider-runtime.js";
 import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./copilot-dynamic-headers.js";
@@ -699,6 +700,42 @@ export function createOpenAIResponsesTransportStreamFn(): StreamFn {
           params = nextParams as typeof params;
         }
         params = mergeTransportMetadata(params, turnState?.metadata);
+        if (process.env.OPENCLAW_CAPTURE_PAYLOAD === "1") {
+          try {
+            const pAny = params as unknown as {
+              input?: unknown;
+              model?: unknown;
+              include?: unknown;
+              reasoning?: unknown;
+            };
+            const redacted = {
+              model: pAny.model,
+              include: pAny.include,
+              reasoning: pAny.reasoning,
+              input: Array.isArray(pAny.input)
+                ? (pAny.input as unknown[]).map((it) => {
+                    if (!it || typeof it !== "object") {
+                      return { id: undefined, type: undefined, hasEncrypted: false };
+                    }
+                    const rec = it as Record<string, unknown>;
+                    return {
+                      id: rec.id,
+                      type: rec.type,
+                      hasEncrypted: Boolean(rec.encrypted_content),
+                    };
+                  })
+                : undefined,
+            };
+            console.error(
+              "[payload-capture] assembled params (redacted): %s",
+              JSON.stringify(redacted),
+            );
+          } catch (e) {
+            try {
+              console.error("[payload-capture] failed to capture params: %s", String(e));
+            } catch {}
+          }
+        }
         const responseStream = (await client.responses.create(
           params as never,
           options?.signal ? { signal: options.signal } : undefined,
@@ -770,6 +807,11 @@ export function buildOpenAIResponsesParams(
     new Set(["openai", "openai-codex", "opencode", "azure-openai-responses"]),
     { supportsDeveloperRole },
   );
+
+  // Normalize any opaque connection-bound response IDs (from GitHub Copilot)
+  // to stable ids before payload construction so encryption and request builders
+  // don't observe mismatched ids.
+  rewriteCopilotConnectionBoundResponseIds(messages as unknown as unknown[]);
   const cacheRetention = resolveCacheRetention(options?.cacheRetention);
   const payloadPolicy = resolveOpenAIResponsesPayloadPolicy(model, {
     storeMode: "disable",
@@ -880,6 +922,42 @@ export function createAzureOpenAIResponsesTransportStreamFn(): StreamFn {
           params = nextParams as typeof params;
         }
         params = mergeTransportMetadata(params, turnState?.metadata);
+        if (process.env.OPENCLAW_CAPTURE_PAYLOAD === "1") {
+          try {
+            const pAny = params as unknown as {
+              input?: unknown;
+              model?: unknown;
+              include?: unknown;
+              reasoning?: unknown;
+            };
+            const redacted = {
+              model: pAny.model,
+              include: pAny.include,
+              reasoning: pAny.reasoning,
+              input: Array.isArray(pAny.input)
+                ? (pAny.input as unknown[]).map((it) => {
+                    if (!it || typeof it !== "object") {
+                      return { id: undefined, type: undefined, hasEncrypted: false };
+                    }
+                    const rec = it as Record<string, unknown>;
+                    return {
+                      id: rec.id,
+                      type: rec.type,
+                      hasEncrypted: Boolean(rec.encrypted_content),
+                    };
+                  })
+                : undefined,
+            };
+            console.error(
+              "[payload-capture] assembled params (redacted): %s",
+              JSON.stringify(redacted),
+            );
+          } catch (e) {
+            try {
+              console.error("[payload-capture] failed to capture params: %s", String(e));
+            } catch {}
+          }
+        }
         const responseStream = (await client.responses.create(
           params as never,
           options?.signal ? { signal: options.signal } : undefined,
