@@ -1340,6 +1340,28 @@ Replace the entire OpenClaw-assembled system prompt with a fixed string. Set at 
 }
 ```
 
+### `agents.defaults.promptOverlays`
+
+Provider-independent prompt overlays applied by model family. GPT-5-family model ids receive the shared behavior contract across providers; `personality` controls only the friendly interaction-style layer.
+
+```json5
+{
+  agents: {
+    defaults: {
+      promptOverlays: {
+        gpt5: {
+          personality: "friendly", // friendly | on | off
+        },
+      },
+    },
+  },
+}
+```
+
+- `"friendly"` (default) and `"on"` enable the friendly interaction-style layer.
+- `"off"` disables only the friendly layer; the tagged GPT-5 behavior contract remains enabled.
+- Legacy `plugins.entries.openai.config.personality` is still read when this shared setting is unset.
+
 ### `agents.defaults.heartbeat`
 
 Periodic heartbeat runs.
@@ -3881,6 +3903,8 @@ Split config into multiple files:
 - Sibling keys: merged after includes (override included values).
 - Nested includes: up to 10 levels deep.
 - Paths: resolved relative to the including file, but must stay inside the top-level config directory (`dirname` of `openclaw.json`). Absolute/`../` forms are allowed only when they still resolve inside that boundary.
+- OpenClaw-owned writes that change only one top-level section backed by a single-file include write through to that included file. For example, `plugins install` updates `plugins: { $include: "./plugins.json5" }` in `plugins.json5` and leaves `openclaw.json` intact.
+- Root includes, include arrays, and includes with sibling overrides are read-only for OpenClaw-owned writes; those writes fail closed instead of flattening the config.
 - Errors: clear messages for missing files, parse errors, and circular includes.
 
 ---

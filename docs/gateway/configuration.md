@@ -10,6 +10,10 @@ title: "Configuration"
 # Configuration
 
 OpenClaw reads an optional <Tooltip tip="JSON5 supports comments and trailing commas">**JSON5**</Tooltip> config from `~/.openclaw/openclaw.json`.
+The active config path must be a regular file. Symlinked `openclaw.json`
+layouts are unsupported for OpenClaw-owned writes; an atomic write may replace
+the path instead of preserving the symlink. If you keep config outside the
+default state directory, point `OPENCLAW_CONFIG_PATH` directly at the real file.
 
 If the file is missing, OpenClaw uses safe defaults. Common reasons to add a config:
 
@@ -100,6 +104,9 @@ The Gateway also keeps a trusted last-known-good copy after a successful startup
 `openclaw.json` is later changed outside OpenClaw and no longer validates, startup
 and hot reload preserve the broken file as a timestamped `.clobbered.*` snapshot,
 restore the last-known-good copy, and log a loud warning with the recovery reason.
+Startup read recovery also treats sharp size drops, missing config metadata, and a
+missing `gateway.mode` as critical clobber signatures when the last-known-good
+copy had those fields.
 If a status/log line is accidentally prepended before an otherwise valid JSON
 config, gateway startup and `openclaw doctor --fix` can strip the prefix,
 preserve the polluted file as `.clobbered.*`, and continue with the recovered
@@ -501,6 +508,12 @@ placeholders such as `***` or shortened token values.
     - **Sibling keys**: merged after includes (override included values)
     - **Nested includes**: supported up to 10 levels deep
     - **Relative paths**: resolved relative to the including file
+    - **OpenClaw-owned writes**: when a write changes only one top-level section
+      backed by a single-file include such as `plugins: { $include: "./plugins.json5" }`,
+      OpenClaw updates that included file and leaves `openclaw.json` intact
+    - **Unsupported write-through**: root includes, include arrays, and includes
+      with sibling overrides fail closed for OpenClaw-owned writes instead of
+      flattening the config
     - **Error handling**: clear errors for missing files, parse errors, and circular includes
 
   </Accordion>

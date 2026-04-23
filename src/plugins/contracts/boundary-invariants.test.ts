@@ -47,12 +47,10 @@ const BUNDLED_TYPED_HOOK_REGISTRATION_GUARDS = {
   readonly string[]
 >;
 const BUNDLED_LIVE_CONFIG_HOOK_GUARDS = {
-  "extensions/active-memory/index.ts": [
-    'resolvePluginConfigObject(api.runtime.config.loadConfig(), "active-memory")',
-    "api.runtime.config.loadConfig()",
-  ],
+  "extensions/active-memory/index.ts": ["resolveLivePluginConfigObject(", '"active-memory"'],
   "extensions/diffs/src/plugin.ts": [
-    'resolvePluginConfigObject(currentConfig, "diffs")',
+    "resolveLivePluginConfigObject(",
+    '"diffs"',
     "api.runtime.config?.loadConfig?.() ?? api.config",
   ],
   "extensions/memory-core/src/dreaming.ts": [
@@ -60,19 +58,12 @@ const BUNDLED_LIVE_CONFIG_HOOK_GUARDS = {
     "resolveMemoryCorePluginConfig(startupCfg)",
     "api.runtime.config?.loadConfig?.() ?? api.config",
   ],
-  "extensions/memory-lancedb/index.ts": [
-    'resolvePluginConfigObject(runtimeConfig, "memory-lancedb")',
-    "api.runtime.config?.loadConfig?.()",
-  ],
-  "extensions/skill-workshop/index.ts": [
-    'resolvePluginConfigObject(runtimeConfig, "skill-workshop")',
-    'typeof api.runtime.config?.loadConfig === "function"',
-    "api.runtime.config.loadConfig()",
-  ],
+  "extensions/memory-lancedb/index.ts": ["resolveLivePluginConfigObject(", '"memory-lancedb"'],
+  "extensions/skill-workshop/index.ts": ["resolveLivePluginConfigObject(", '"skill-workshop"'],
   "extensions/thread-ownership/index.ts": [
-    'resolvePluginConfigObject(currentConfig, "thread-ownership")',
-    'typeof api.runtime.config?.loadConfig === "function"',
-    "api.runtime.config.loadConfig() ?? api.config",
+    "resolveLivePluginConfigObject(",
+    '"thread-ownership"',
+    "api.runtime.config?.loadConfig?.() ?? api.config",
   ],
 } as const satisfies Record<string, readonly string[]>;
 

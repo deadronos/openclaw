@@ -7,15 +7,13 @@ import {
 import {
   buildAgentSessionKey,
   deriveLastRoutePolicy,
+  normalizeAccountId,
   resolveAgentRoute,
 } from "openclaw/plugin-sdk/routing";
-import {
-  buildAgentMainSessionKey,
-  DEFAULT_ACCOUNT_ID,
-  sanitizeAgentId,
-} from "openclaw/plugin-sdk/routing";
+import { buildAgentMainSessionKey, sanitizeAgentId } from "openclaw/plugin-sdk/routing";
 import { logVerbose } from "openclaw/plugin-sdk/runtime-env";
 import { normalizeLowercaseStringOrEmpty } from "openclaw/plugin-sdk/text-runtime";
+import { resolveDefaultTelegramAccountId } from "./accounts.js";
 import {
   buildTelegramGroupPeerId,
   buildTelegramParentPeer,
@@ -151,8 +149,10 @@ export function resolveTelegramConversationBaseSessionKey(params: {
   isGroup: boolean;
   senderId?: string | number | null;
 }): string {
+  const routeAccountId = normalizeAccountId(params.route.accountId);
+  const defaultAccountId = normalizeAccountId(resolveDefaultTelegramAccountId(params.cfg));
   const isNamedAccountFallback =
-    params.route.accountId !== DEFAULT_ACCOUNT_ID && params.route.matchedBy === "default";
+    routeAccountId !== defaultAccountId && params.route.matchedBy === "default";
   if (!isNamedAccountFallback || params.isGroup) {
     return params.route.sessionKey;
   }
