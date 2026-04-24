@@ -35,6 +35,31 @@ describe("github-copilot connection-bound response IDs", () => {
     expect(input[4]?.id).toMatch(/^msg_[a-f0-9]{16}$/);
   });
 
+  it("drops encrypted reasoning content when rewriting connection-bound reasoning IDs", () => {
+    const reasoningId = Buffer.from(`reasoning-${"e".repeat(24)}`).toString("base64");
+    const input = [
+      {
+        id: reasoningId,
+        type: "reasoning",
+        encrypted_content: "encrypted-for-original-item-id",
+      },
+      {
+        id: "rs_existing",
+        type: "reasoning",
+        encrypted_content: "encrypted-for-existing-item-id",
+      },
+    ];
+
+    expect(rewriteCopilotConnectionBoundResponseIds(input)).toBe(true);
+    expect(input[0]?.id).toMatch(/^rs_[a-f0-9]{16}$/);
+    expect(input[0]).not.toHaveProperty("encrypted_content");
+    expect(input[1]).toEqual({
+      id: "rs_existing",
+      type: "reasoning",
+      encrypted_content: "encrypted-for-existing-item-id",
+    });
+  });
+
   it("patches response payload input arrays only", () => {
     const messageId = Buffer.from(`message-${"m".repeat(24)}`).toString("base64");
     const payload = { input: [{ id: messageId, type: "message" }] };

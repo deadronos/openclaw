@@ -37,6 +37,9 @@ export function rewriteCopilotConnectionBoundResponseIds(input: unknown): boolea
     }
     if (looksLikeConnectionBoundId(id)) {
       item.id = deriveReplacementId(typeof item.type === "string" ? item.type : undefined, id);
+      if (item.type === "reasoning") {
+        delete item.encrypted_content;
+      }
       rewrote = true;
     }
   }

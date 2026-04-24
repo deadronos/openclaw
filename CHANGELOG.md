@@ -41,6 +41,7 @@ Docs: https://docs.openclaw.ai
 
 ### Fixes
 
+- Providers/GitHub Copilot: drop encrypted reasoning blobs when normalizing Copilot Responses replay item ids, so rewritten `rs_*` ids no longer fail with encrypted-content item-id mismatch on the next turn.
 - Thinking defaults/status: raise the implicit default thinking level for reasoning-capable models from legacy `off`/`low` fallback behavior to a safe provider-supported `medium` equivalent when no explicit config default is set, preserve configured-model reasoning metadata when runtime catalog loading is empty, and make `/status` report the same resolved default as runtime.
 - Gateway/model pricing: fetch OpenRouter and LiteLLM pricing asynchronously at startup and extend catalog fetch timeouts to 30 seconds, reducing noisy timeout warnings during slow upstream responses.
 - Agents/sessions: keep daily reset and idle-maintenance bookkeeping from bumping session activity or pruning freshly active routes, so active conversations no longer look newer or disappear for maintenance-only updates.
