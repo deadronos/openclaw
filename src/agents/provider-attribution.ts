@@ -130,7 +130,12 @@ const OPENAI_RESPONSES_APIS = new Set([
   "azure-openai-responses",
   "openai-codex-responses",
 ]);
-const OPENAI_RESPONSES_PROVIDERS = new Set(["openai", "azure-openai", "azure-openai-responses"]);
+const OPENAI_RESPONSES_PROVIDERS = new Set([
+  "openai",
+  "azure-openai",
+  "azure-openai-responses",
+  "github-copilot",
+]);
 const MOONSHOT_COMPAT_PROVIDERS = new Set(["moonshot", "kimi"]);
 const MANIFEST_PROVIDER_ENDPOINT_CLASSES = new Set<ProviderEndpointClass>(["xai-native"]);
 type ManifestProviderEndpointCacheEntry = {
@@ -537,7 +542,8 @@ export function resolveProviderRequestPolicy(
   const usesKnownNativeOpenAIEndpoint =
     endpointClass === "openai-public" ||
     endpointClass === "openai-codex" ||
-    endpointClass === "azure-openai";
+    endpointClass === "azure-openai" ||
+    endpointClass === "github-copilot-native";
   const usesOpenAIPublicAttributionHost = endpointClass === "openai-public";
   const usesOpenAICodexAttributionHost = endpointClass === "openai-codex";
   const usesVerifiedOpenAIAttributionHost =
