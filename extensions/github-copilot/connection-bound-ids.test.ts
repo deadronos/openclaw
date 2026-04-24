@@ -35,7 +35,7 @@ describe("github-copilot connection-bound response IDs", () => {
     expect(input[4]?.id).toMatch(/^msg_[a-f0-9]{16}$/);
   });
 
-  it("drops encrypted reasoning content when rewriting connection-bound reasoning IDs", () => {
+  it("strips encrypted reasoning content when rewriting connection-bound reasoning IDs", () => {
     const reasoningId = Buffer.from(`reasoning-${"e".repeat(24)}`).toString("base64");
     const input = [
       {

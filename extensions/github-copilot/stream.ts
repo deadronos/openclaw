@@ -7,7 +7,9 @@ import {
   hasCopilotVisionInput,
   streamWithPayloadPatch,
 } from "openclaw/plugin-sdk/provider-stream-shared";
-import { rewriteCopilotResponsePayloadConnectionBoundIds } from "./connection-bound-ids.js";
+import {
+  rewriteCopilotResponsePayloadConnectionBoundIds,
+} from "./connection-bound-ids.js";
 
 type _StreamContext = Parameters<StreamFn>[1];
 type StreamOptions = Parameters<StreamFn>[2];
@@ -21,6 +23,11 @@ function patchOnPayloadResult(result: unknown): unknown {
   }
   rewriteCopilotResponsePayloadConnectionBoundIds(result);
   return result;
+}
+
+function applyCopilotStreamPatches(payload: Record<string, unknown>): void {
+  applyAnthropicEphemeralCacheControlMarkers(payload);
+  rewriteCopilotResponsePayloadConnectionBoundIds(payload);
 }
 
 export function wrapCopilotAnthropicStream(baseStreamFn: StreamFn | undefined): StreamFn {
@@ -44,7 +51,7 @@ export function wrapCopilotAnthropicStream(baseStreamFn: StreamFn | undefined): 
           ...options?.headers,
         },
       },
-      applyAnthropicEphemeralCacheControlMarkers,
+      applyCopilotStreamPatches,
     );
   };
 }

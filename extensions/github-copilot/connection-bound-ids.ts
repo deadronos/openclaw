@@ -36,7 +36,10 @@ export function rewriteCopilotConnectionBoundResponseIds(input: unknown): boolea
       continue;
     }
     if (looksLikeConnectionBoundId(id)) {
-      item.id = deriveReplacementId(typeof item.type === "string" ? item.type : undefined, id);
+      const newId = deriveReplacementId(typeof item.type === "string" ? item.type : undefined, id);
+      item.id = newId;
+      // Copilot can't resolve encrypted_content for IDs we just generated.
+      // Strip it to avoid "Item not found" errors on follow-up requests.
       if (item.type === "reasoning") {
         delete item.encrypted_content;
       }
