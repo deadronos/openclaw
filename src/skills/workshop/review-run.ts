@@ -1,6 +1,8 @@
 import { prepareSystemAgentRunAdmission } from "../../agents/admitted-run-context.js";
 import type { RunEmbeddedAgentParams } from "../../agents/embedded-agent-runner/run/params.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import { formatErrorMessage } from "../../infra/errors.js";
+import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { getCurrentPluginMetadataSnapshot } from "../../plugins/current-plugin-metadata-snapshot.js";
 import type { PluginMetadataSnapshot } from "../../plugins/plugin-metadata-snapshot.types.js";
 import type { PluginRegistry } from "../../plugins/registry-types.js";
@@ -13,32 +15,52 @@ import { createBackgroundWorkOwner } from "../../process/background-work.js";
 import { getGatewayRestartDrainSignal } from "../../process/gateway-work-admission.js";
 
 const reviews = createBackgroundWorkOwner({ owner: "core:skill-workshop", maxConcurrent: 1 });
+const log = createSubsystemLogger("skills/workshop");
 
-/**
- * Re-admit the process-active plugin generation for a detached review.
- *
- * The review is armed by the foreground turn but executes after the idle delay,
- * and the scheduler deliberately drops the predecessor's plugin generation and
- * prepared model runtime scopes before the timer fires. Without a generation in
- * scope, model resolution cannot see plugin-owned providers (for example
- * `opencode-go`), so the review fails with `Unknown model` and, because it runs
- * with fallbacks disabled, dies instead of degrading. A predecessor's scope is
- * never reused; only the currently active generation is re-entered.
- */
-function resolveCurrentPluginGeneration(
-  config: OpenClawConfig,
-): { metadataSnapshot: PluginMetadataSnapshot; pluginRegistry?: PluginRegistry } | undefined {
+type CurrentPluginGenerationProbe = {
+  generation:
+    | { metadataSnapshot: PluginMetadataSnapshot; pluginRegistry?: PluginRegistry }
+    | undefined;
+  metadata: "present" | "missing";
+  registry: "frame" | "state" | "missing";
+};
+
+function resolveCurrentPluginGeneration(config: OpenClawConfig): CurrentPluginGenerationProbe {
   const metadataSnapshot = getCurrentPluginMetadataSnapshot({
     config,
     allowScopedSnapshot: true,
     allowWorkspaceScopedSnapshot: true,
   });
-  if (!metadataSnapshot) {
-    return undefined;
+  const frameRegistry = getPluginRuntimeGenerationRegistry();
+  const stateRegistry = frameRegistry ?? getPluginRegistryState()?.activeRegistry ?? undefined;
+  const registry: CurrentPluginGenerationProbe["registry"] = frameRegistry
+    ? "frame"
+    : stateRegistry
+      ? "state"
+      : "missing";
+  return {
+    generation: metadataSnapshot
+      ? { metadataSnapshot, ...(stateRegistry ? { pluginRegistry: stateRegistry } : {}) }
+      : undefined,
+    metadata: metadataSnapshot ? "present" : "missing",
+    registry,
+  };
+}
+
+/** Temporary diagnostics for the detached-review model-resolution failure. */
+function describeReviewFailure(error: unknown): string {
+  const parts = [`error=${formatErrorMessage(error)}`];
+  if (error instanceof Error && error.stack) {
+    const frames = error.stack
+      .split("\n")
+      .slice(1, 6)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (frames.length > 0) {
+      parts.push(`stack=${frames.join(" | ")}`);
+    }
   }
-  const pluginRegistry =
-    getPluginRuntimeGenerationRegistry() ?? getPluginRegistryState()?.activeRegistry ?? undefined;
-  return { metadataSnapshot, ...(pluginRegistry ? { pluginRegistry } : {}) };
+  return parts.join(" ");
 }
 
 /** Experience reviews retain admission, model locking, and background capacity. */
@@ -80,8 +102,21 @@ export async function runSkillWorkshopReview(
         cleanupBundleMcpOnRunEnd: true,
         verboseLevel: "off",
       });
-    const generation = resolveCurrentPluginGeneration(params.config);
-    return generation ? await withPluginRuntimeGenerationScope(generation, run) : await run();
+    const probe = resolveCurrentPluginGeneration(params.config);
+    const scoped = probe.generation ? "yes" : "no";
+    log.info(
+      `review model runtime: model=${params.provider}/${params.model} scoped=${scoped} snapshot=${probe.metadata} registry=${probe.registry}`,
+    );
+    try {
+      return probe.generation
+        ? await withPluginRuntimeGenerationScope(probe.generation, run)
+        : await run();
+    } catch (error) {
+      log.warn(
+        `review run failed: scoped=${scoped} snapshot=${probe.metadata} registry=${probe.registry} model=${params.provider}/${params.model} ${describeReviewFailure(error)}`,
+      );
+      throw error;
+    }
   } finally {
     preparedRunAdmission.close();
   }
