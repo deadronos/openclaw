@@ -2,8 +2,14 @@ import { prepareSystemAgentRunAdmission } from "../../agents/admitted-run-contex
 import { resolveAgentDir } from "../../agents/agent-scope-config.js";
 import type { RunEmbeddedAgentParams } from "../../agents/embedded-agent-runner/run/params.js";
 import { withPreparedModelRuntimePluginGenerationScope } from "../../agents/prepared-model-runtime-generation-scope.js";
-import { acquireAgentRunPreparedModelRuntime } from "../../agents/prepared-model-runtime.js";
-import type { PreparedModelRuntimeLease } from "../../agents/prepared-model-runtime.types.js";
+import {
+  acquireAgentRunPreparedModelRuntime,
+  loadPublishedGatewayReplyDispatchRuntime,
+} from "../../agents/prepared-model-runtime.js";
+import type {
+  PreparedModelRuntimeLease,
+  PreparedReplyDispatchRuntime,
+} from "../../agents/prepared-model-runtime.types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
@@ -75,6 +81,21 @@ export async function runSkillWorkshopReview(
     // plugin-owned providers (for example `opencode-go`). Without the lease the
     // detached review resolves against a runtime prepared without the admitted
     // generation and fails with `Unknown model`.
+    let publishedRuntime: PreparedReplyDispatchRuntime | undefined;
+    try {
+      // Mirror the cron admission: bind the published reply dispatch generation so a
+      // derived owner shares the gateway's warm plugin facts. A detached acquisition
+      // without it publishes a colder generation whose catalog cannot resolve
+      // plugin-only models such as `opencode-go/deepseek-v4.1-flash`.
+      publishedRuntime = await loadPublishedGatewayReplyDispatchRuntime({
+        agentId: params.agentId,
+        abortSignal,
+      });
+    } catch (error) {
+      log.warn(
+        `review model runtime published generation unavailable: ${formatErrorMessage(error)}`,
+      );
+    }
     let lease: PreparedModelRuntimeLease | undefined;
     try {
       lease = await acquireAgentRunPreparedModelRuntime(
@@ -88,8 +109,19 @@ export async function runSkillWorkshopReview(
           // reuse that generation and binds to a colder one whose catalog lacks live
           // plugin-provided models (for example `opencode-go`).
           allowGatewaySubagentBinding: true,
+          ...(params.provider && params.model
+            ? {
+                runtimePluginSelections: [
+                  { provider: params.provider, modelId: params.model, agentId: params.agentId },
+                ],
+              }
+            : {}),
         },
-        { catalogMode: "static", abortSignal },
+        {
+          catalogMode: "static",
+          ...(publishedRuntime ? { pluginGeneration: publishedRuntime.pluginGeneration } : {}),
+          abortSignal,
+        },
       );
     } catch (error) {
       log.warn(`review model runtime lease failed: ${formatErrorMessage(error)}`);
@@ -97,10 +129,13 @@ export async function runSkillWorkshopReview(
     const scoped = lease ? "lease" : "none";
     const catalogEntries = lease?.snapshot.modelCatalog?.entries;
     const catalogProbe = catalogEntries
-      ? `catalogEntries=${catalogEntries.length} hasOpencodeGo=${catalogEntries.some((entry) => entry.provider === "opencode-go")}`
+      ? `catalogEntries=${catalogEntries.length} hasOpencodeGo=${catalogEntries.some((entry) => entry.provider === "opencode-go")} sample=${catalogEntries
+          .slice(0, 2)
+          .map((entry) => `${entry.provider}/${entry.id}`)
+          .join(",")}`
       : "catalog=n/a";
     log.info(
-      `review model runtime: model=${params.provider}/${params.model} scoped=${scoped} ${catalogProbe}`,
+      `review model runtime: model=${params.provider}/${params.model} scoped=${scoped} published=${publishedRuntime ? "yes" : "no"} ${catalogProbe}`,
     );
     try {
       if (!lease) {

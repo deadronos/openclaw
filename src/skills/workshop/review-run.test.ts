@@ -12,12 +12,15 @@ const withPreparedModelRuntimePluginGenerationScope = vi.fn(
   (_generation: unknown, run: () => unknown, _borrow?: () => unknown) => run(),
 );
 const acquireAgentRunPreparedModelRuntime = vi.fn(async () => lease as never);
+const publishedRuntime = { pluginGeneration: { generationId: "published-generation" } };
+const loadPublishedGatewayReplyDispatchRuntime = vi.fn(async () => publishedRuntime as never);
 const resolveAgentDir = vi.fn(() => "/tmp/agent-dir");
 
 vi.mock("../../agents/embedded-agent.js", () => ({ runEmbeddedAgent }));
 vi.mock("../../agents/agent-scope-config.js", () => ({ resolveAgentDir }));
 vi.mock("../../agents/prepared-model-runtime.js", () => ({
   acquireAgentRunPreparedModelRuntime,
+  loadPublishedGatewayReplyDispatchRuntime,
 }));
 vi.mock("../../agents/prepared-model-runtime-generation-scope.js", () => ({
   withPreparedModelRuntimePluginGenerationScope,
@@ -55,6 +58,15 @@ describe("runSkillWorkshopReview prepared model runtime lease", () => {
     expect(input.agentDir).toBe("/tmp/agent-dir");
     expect(input.workspaceDir).toBe("/tmp/ws");
     expect(input.allowGatewaySubagentBinding).toBe(true);
+    expect(input.runtimePluginSelections).toEqual([
+      { provider: "opencode-go", modelId: "deepseek-v4.1-flash", agentId: "main" },
+    ]);
+    const options = acquireAgentRunPreparedModelRuntime.mock.calls[0]?.[1] as Record<
+      string,
+      unknown
+    >;
+    expect(options.pluginGeneration).toBe(publishedRuntime.pluginGeneration);
+    expect(loadPublishedGatewayReplyDispatchRuntime).toHaveBeenCalledTimes(1);
     expect(withPreparedModelRuntimePluginGenerationScope).toHaveBeenCalledTimes(1);
     expect(withPreparedModelRuntimePluginGenerationScope.mock.calls[0]?.[0]).toBe(
       lease.pluginGeneration,
@@ -71,6 +83,20 @@ describe("runSkillWorkshopReview prepared model runtime lease", () => {
 
     expect(withPreparedModelRuntimePluginGenerationScope).not.toHaveBeenCalled();
     expect(withPluginRuntimeGenerationScope).not.toHaveBeenCalled();
+    expect(runEmbeddedAgent).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to an unbound acquisition when the published generation is unavailable", async () => {
+    loadPublishedGatewayReplyDispatchRuntime.mockRejectedValueOnce(new Error("not published"));
+
+    await runSkillWorkshopReview(baseParams());
+
+    expect(acquireAgentRunPreparedModelRuntime).toHaveBeenCalledTimes(1);
+    const options = acquireAgentRunPreparedModelRuntime.mock.calls[0]?.[1] as Record<
+      string,
+      unknown
+    >;
+    expect(options.pluginGeneration).toBeUndefined();
     expect(runEmbeddedAgent).toHaveBeenCalledTimes(1);
   });
 });
