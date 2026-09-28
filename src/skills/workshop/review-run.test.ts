@@ -54,6 +54,7 @@ describe("runSkillWorkshopReview prepared model runtime lease", () => {
     expect(input.agentId).toBe("main");
     expect(input.agentDir).toBe("/tmp/agent-dir");
     expect(input.workspaceDir).toBe("/tmp/ws");
+    expect(input.allowGatewaySubagentBinding).toBe(true);
     expect(withPreparedModelRuntimePluginGenerationScope).toHaveBeenCalledTimes(1);
     expect(withPreparedModelRuntimePluginGenerationScope.mock.calls[0]?.[0]).toBe(
       lease.pluginGeneration,

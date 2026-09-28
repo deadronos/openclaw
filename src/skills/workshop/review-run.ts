@@ -83,6 +83,11 @@ export async function runSkillWorkshopReview(
           agentId: params.agentId,
           agentDir: resolveAgentDir(params.config, params.agentId),
           workspaceDir: params.workspaceDir,
+          // Owner-key alignment: the gateway's configured generation is published with this
+          // set (every admission/cron/reply caller passes it). Without it the lease cannot
+          // reuse that generation and binds to a colder one whose catalog lacks live
+          // plugin-provided models (for example `opencode-go`).
+          allowGatewaySubagentBinding: true,
         },
         { catalogMode: "static", abortSignal },
       );
@@ -90,7 +95,13 @@ export async function runSkillWorkshopReview(
       log.warn(`review model runtime lease failed: ${formatErrorMessage(error)}`);
     }
     const scoped = lease ? "lease" : "none";
-    log.info(`review model runtime: model=${params.provider}/${params.model} scoped=${scoped}`);
+    const catalogEntries = lease?.snapshot.modelCatalog?.entries;
+    const catalogProbe = catalogEntries
+      ? `catalogEntries=${catalogEntries.length} hasOpencodeGo=${catalogEntries.some((entry) => entry.provider === "opencode-go")}`
+      : "catalog=n/a";
+    log.info(
+      `review model runtime: model=${params.provider}/${params.model} scoped=${scoped} ${catalogProbe}`,
+    );
     try {
       if (!lease) {
         return await run();
