@@ -1,22 +1,29 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const metadataSnapshot = { snapshotId: "snap" } as never;
-const activeRegistry = { registryId: "registry" } as never;
+const lease = {
+  snapshot: { snapshotId: "snapshot" },
+  pluginGeneration: { generationId: "generation" },
+  [Symbol.asyncDispose]: async () => {},
+};
 
 const runEmbeddedAgent = vi.fn(async () => ({ ok: true }) as never);
 const withPluginRuntimeGenerationScope = vi.fn((_generation: unknown, run: () => unknown) => run());
-const getPluginRuntimeGenerationRegistry = vi.fn(() => undefined as never);
-const getPluginRegistryState = vi.fn(() => ({ activeRegistry }) as never);
-const getCurrentPluginMetadataSnapshot = vi.fn(() => metadataSnapshot as never);
+const withPreparedModelRuntimePluginGenerationScope = vi.fn(
+  (_generation: unknown, run: () => unknown, _borrow?: () => unknown) => run(),
+);
+const acquireAgentRunPreparedModelRuntime = vi.fn(async () => lease as never);
+const resolveAgentDir = vi.fn(() => "/tmp/agent-dir");
 
 vi.mock("../../agents/embedded-agent.js", () => ({ runEmbeddedAgent }));
-vi.mock("../../plugins/current-plugin-metadata-snapshot.js", () => ({
-  getCurrentPluginMetadataSnapshot,
+vi.mock("../../agents/agent-scope-config.js", () => ({ resolveAgentDir }));
+vi.mock("../../agents/prepared-model-runtime.js", () => ({
+  acquireAgentRunPreparedModelRuntime,
 }));
-vi.mock("../../plugins/runtime-state.js", () => ({ getPluginRegistryState }));
+vi.mock("../../agents/prepared-model-runtime-generation-scope.js", () => ({
+  withPreparedModelRuntimePluginGenerationScope,
+}));
 vi.mock("../../plugins/runtime/generation-scope.js", () => ({
   withPluginRuntimeGenerationScope,
-  getPluginRuntimeGenerationRegistry,
 }));
 
 const { runSkillWorkshopReview } = await import("./review-run.js");
@@ -27,45 +34,41 @@ function baseParams() {
     config: {} as never,
     preparedRunAdmission: { close() {} } as never,
     runId: "run-1",
+    workspaceDir: "/tmp/ws",
+    provider: "opencode-go",
+    model: "deepseek-v4.1-flash",
   } as never;
 }
 
-describe("runSkillWorkshopReview plugin generation re-admission", () => {
+describe("runSkillWorkshopReview prepared model runtime lease", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    getCurrentPluginMetadataSnapshot.mockReturnValue(metadataSnapshot as never);
-    getPluginRegistryState.mockReturnValue({ activeRegistry } as never);
-    getPluginRuntimeGenerationRegistry.mockReturnValue(undefined as never);
+    acquireAgentRunPreparedModelRuntime.mockResolvedValue(lease as never);
   });
 
-  it("re-enters the process-active plugin generation around the embedded run", async () => {
+  it("acquires a lease and enters both generation scopes around the embedded run", async () => {
     await runSkillWorkshopReview(baseParams());
 
+    expect(acquireAgentRunPreparedModelRuntime).toHaveBeenCalledTimes(1);
+    const input = acquireAgentRunPreparedModelRuntime.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(input.agentId).toBe("main");
+    expect(input.agentDir).toBe("/tmp/agent-dir");
+    expect(input.workspaceDir).toBe("/tmp/ws");
+    expect(withPreparedModelRuntimePluginGenerationScope).toHaveBeenCalledTimes(1);
+    expect(withPreparedModelRuntimePluginGenerationScope.mock.calls[0]?.[0]).toBe(
+      lease.pluginGeneration,
+    );
     expect(withPluginRuntimeGenerationScope).toHaveBeenCalledTimes(1);
-    expect(withPluginRuntimeGenerationScope.mock.calls[0]?.[0]).toEqual({
-      metadataSnapshot,
-      pluginRegistry: activeRegistry,
-    });
+    expect(withPluginRuntimeGenerationScope.mock.calls[0]?.[0]).toBe(lease.snapshot);
     expect(runEmbeddedAgent).toHaveBeenCalledTimes(1);
   });
 
-  it("prefers an in-scope generation registry when one exists", async () => {
-    const scopedRegistry = { registryId: "scoped" } as never;
-    getPluginRuntimeGenerationRegistry.mockReturnValue(scopedRegistry as never);
+  it("falls back to an unscoped run when the lease cannot be acquired", async () => {
+    acquireAgentRunPreparedModelRuntime.mockRejectedValueOnce(new Error("no lease"));
 
     await runSkillWorkshopReview(baseParams());
 
-    expect(withPluginRuntimeGenerationScope.mock.calls[0]?.[0]).toEqual({
-      metadataSnapshot,
-      pluginRegistry: scopedRegistry,
-    });
-  });
-
-  it("runs unscoped when no metadata snapshot can be resolved", async () => {
-    getCurrentPluginMetadataSnapshot.mockReturnValue(undefined as never);
-
-    await runSkillWorkshopReview(baseParams());
-
+    expect(withPreparedModelRuntimePluginGenerationScope).not.toHaveBeenCalled();
     expect(withPluginRuntimeGenerationScope).not.toHaveBeenCalled();
     expect(runEmbeddedAgent).toHaveBeenCalledTimes(1);
   });

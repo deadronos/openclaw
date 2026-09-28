@@ -1,51 +1,18 @@
 import { prepareSystemAgentRunAdmission } from "../../agents/admitted-run-context.js";
+import { resolveAgentDir } from "../../agents/agent-scope-config.js";
 import type { RunEmbeddedAgentParams } from "../../agents/embedded-agent-runner/run/params.js";
+import { withPreparedModelRuntimePluginGenerationScope } from "../../agents/prepared-model-runtime-generation-scope.js";
+import { acquireAgentRunPreparedModelRuntime } from "../../agents/prepared-model-runtime.js";
+import type { PreparedModelRuntimeLease } from "../../agents/prepared-model-runtime.types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
-import { getCurrentPluginMetadataSnapshot } from "../../plugins/current-plugin-metadata-snapshot.js";
-import type { PluginMetadataSnapshot } from "../../plugins/plugin-metadata-snapshot.types.js";
-import type { PluginRegistry } from "../../plugins/registry-types.js";
-import { getPluginRegistryState } from "../../plugins/runtime-state.js";
-import {
-  getPluginRuntimeGenerationRegistry,
-  withPluginRuntimeGenerationScope,
-} from "../../plugins/runtime/generation-scope.js";
+import { withPluginRuntimeGenerationScope } from "../../plugins/runtime/generation-scope.js";
 import { createBackgroundWorkOwner } from "../../process/background-work.js";
 import { getGatewayRestartDrainSignal } from "../../process/gateway-work-admission.js";
 
 const reviews = createBackgroundWorkOwner({ owner: "core:skill-workshop", maxConcurrent: 1 });
 const log = createSubsystemLogger("skills/workshop");
-
-type CurrentPluginGenerationProbe = {
-  generation:
-    | { metadataSnapshot: PluginMetadataSnapshot; pluginRegistry?: PluginRegistry }
-    | undefined;
-  metadata: "present" | "missing";
-  registry: "frame" | "state" | "missing";
-};
-
-function resolveCurrentPluginGeneration(config: OpenClawConfig): CurrentPluginGenerationProbe {
-  const metadataSnapshot = getCurrentPluginMetadataSnapshot({
-    config,
-    allowScopedSnapshot: true,
-    allowWorkspaceScopedSnapshot: true,
-  });
-  const frameRegistry = getPluginRuntimeGenerationRegistry();
-  const stateRegistry = frameRegistry ?? getPluginRegistryState()?.activeRegistry ?? undefined;
-  const registry: CurrentPluginGenerationProbe["registry"] = frameRegistry
-    ? "frame"
-    : stateRegistry
-      ? "state"
-      : "missing";
-  return {
-    generation: metadataSnapshot
-      ? { metadataSnapshot, ...(stateRegistry ? { pluginRegistry: stateRegistry } : {}) }
-      : undefined,
-    metadata: metadataSnapshot ? "present" : "missing",
-    registry,
-  };
-}
 
 /** Temporary diagnostics for the detached-review model-resolution failure. */
 function describeReviewFailure(error: unknown): string {
@@ -102,18 +69,46 @@ export async function runSkillWorkshopReview(
         cleanupBundleMcpOnRunEnd: true,
         verboseLevel: "off",
       });
-    const probe = resolveCurrentPluginGeneration(params.config);
-    const scoped = probe.generation ? "yes" : "no";
-    log.info(
-      `review model runtime: model=${params.provider}/${params.model} scoped=${scoped} snapshot=${probe.metadata} registry=${probe.registry}`,
-    );
+    // Mirror the admitted-run contract used by the reply and cron callers: acquire
+    // this run's own prepared model runtime and re-enter both plugin generation
+    // scopes, so the nested embedded run borrows a snapshot that includes
+    // plugin-owned providers (for example `opencode-go`). Without the lease the
+    // detached review resolves against a runtime prepared without the admitted
+    // generation and fails with `Unknown model`.
+    let lease: PreparedModelRuntimeLease | undefined;
     try {
-      return probe.generation
-        ? await withPluginRuntimeGenerationScope(probe.generation, run)
-        : await run();
+      lease = await acquireAgentRunPreparedModelRuntime(
+        {
+          config: params.config,
+          agentId: params.agentId,
+          agentDir: resolveAgentDir(params.config, params.agentId),
+          workspaceDir: params.workspaceDir,
+        },
+        { catalogMode: "static", abortSignal },
+      );
+    } catch (error) {
+      log.warn(`review model runtime lease failed: ${formatErrorMessage(error)}`);
+    }
+    const scoped = lease ? "lease" : "none";
+    log.info(`review model runtime: model=${params.provider}/${params.model} scoped=${scoped}`);
+    try {
+      if (!lease) {
+        return await run();
+      }
+      await using leased = lease;
+      let leaseActive = true;
+      try {
+        return await withPreparedModelRuntimePluginGenerationScope(
+          leased.pluginGeneration,
+          () => withPluginRuntimeGenerationScope(leased.snapshot, run),
+          () => (leaseActive ? leased.snapshot : undefined),
+        );
+      } finally {
+        leaseActive = false;
+      }
     } catch (error) {
       log.warn(
-        `review run failed: scoped=${scoped} snapshot=${probe.metadata} registry=${probe.registry} model=${params.provider}/${params.model} ${describeReviewFailure(error)}`,
+        `review run failed: scoped=${scoped} model=${params.provider}/${params.model} ${describeReviewFailure(error)}`,
       );
       throw error;
     }
