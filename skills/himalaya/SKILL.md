@@ -35,7 +35,7 @@ Use `himalaya` for IMAP/SMTP email from shell.
 
 ```bash
 himalaya --version
-himalaya account configure
+himalaya configure
 ```
 
 Config path: `~/.config/himalaya/config.toml`.
@@ -45,18 +45,17 @@ Prefer password managers/keyrings for credentials; do not paste secrets into cha
 ## Read/search
 
 ```bash
-himalaya folder list
+himalaya mailbox list
 himalaya envelope list
 himalaya message read <id>
-himalaya envelope list from alice@example.com subject invoice
+himalaya envelope search 'from alice@example.com and subject invoice'
 ```
 
 ## Write
 
 ```bash
 himalaya message write
-himalaya template write
-himalaya template send < /tmp/message.txt
+himalaya message send < /tmp/message.txt
 himalaya message reply <id>
 himalaya message forward <id>
 ```
@@ -66,11 +65,11 @@ Use MML for attachments and rich messages; read `references/message-composition.
 ## Organize
 
 ```bash
-himalaya message copy <id> <folder>
-himalaya message move <id> <folder>
+himalaya message copy -t <folder> <id>
+himalaya message move -t <folder> <id>
 himalaya message delete <id>
-himalaya flag add <id> --flag seen
-himalaya flag remove <id> --flag seen
+himalaya flag add --flag seen <id>
+himalaya flag remove --flag seen <id>
 ```
 
 ## Notes

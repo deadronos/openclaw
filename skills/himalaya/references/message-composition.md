@@ -155,19 +155,21 @@ Defines a message part.
 
 ## Composing from CLI
 
-### Interactive compose
+### Compose (built-in flag composer)
 
-Opens your `$EDITOR`:
+Prints the message to stdout by default; add `--send` to send and/or `--save <mailbox>` to keep a copy:
 
 ```bash
-himalaya message write
+himalaya message write \
+  --to "recipient@example.com" \
+  --subject "Quick Message" \
+  --body "Message body here"
 ```
 
-### Reply (opens editor with quoted message)
+### Reply
 
 ```bash
 himalaya message reply 42
-himalaya message reply 42 --all  # reply-all
 ```
 
 ### Forward
@@ -179,21 +181,12 @@ himalaya message forward 42
 ### Send from stdin
 
 ```bash
-cat message.txt | himalaya template send
-```
-
-### Prefill headers from CLI
-
-```bash
-himalaya message write \
-  -H "To:recipient@example.com" \
-  -H "Subject:Quick Message" \
-  "Message body here"
+cat message.txt | himalaya message send
 ```
 
 ## Tips
 
-- The editor opens with a template; fill in headers and body.
-- Save and exit the editor to send; exit without saving to cancel.
+- `message write` prints the composed message to stdout; add `--send` to send and/or `--save <mailbox>` to keep a copy.
+- For editor-driven or richer MML composition, v2 delegates to external composers like `mml`, chained into `message send` / `message add`.
 - MML parts are compiled to proper MIME when sending.
-- Use `himalaya message export --full` to inspect the raw MIME structure of received emails.
+- Use `himalaya message read <id> --raw` to inspect the raw MIME structure of received emails.
