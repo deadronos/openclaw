@@ -3,6 +3,7 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { clearAgentRunContext, registerAgentRunContext } from "../../infra/agent-run-registry.js";
 import { createBackgroundWorkOwner } from "../../process/background-work.js";
 import { getGatewayRestartDrainSignal } from "../../process/gateway-work-admission.js";
+import { runWithExperienceReviewModelRuntime } from "./experience-review-model-runtime.js";
 
 const reviews = createBackgroundWorkOwner({ owner: "core:skill-workshop", maxConcurrent: 1 });
 
@@ -51,26 +52,41 @@ export async function runSkillWorkshopReview(
   });
   try {
     abortSignal.throwIfAborted();
-    const { runEmbeddedAgent } = await import("../../agents/embedded-agent.js");
-    return await runEmbeddedAgent({
-      ...params,
-      abortSignal,
-      lane: reviews.lane,
-      agentHarnessId: "openclaw",
-      agentHarnessRuntimeOverride: "openclaw",
-      // Review prompts and cloned prefixes are sized for this exact model.
-      modelSelectionLocked: true,
-      modelFallbacksOverride: [],
-      requestedRouteResolution: "resolved",
-      sessionPersistence: "detached",
-      toolExecutionAllow: SKILL_WORKSHOP_REVIEW_TOOLS,
-      disableTrajectory: true,
-      silentExpected: true,
-      allowEmptyAssistantReplyAsSilent: true,
-      terminalReplyExpectation: "optional",
-      cleanupBundleMcpOnRunEnd: true,
-      verboseLevel: "off",
-    });
+    // The foreground turn closed before this detached review, so the run inherits
+    // no plugin generation scope; re-admit its own prepared model runtime lease
+    // so plugin-owned models (e.g. opencode-go) still resolve.
+    return await runWithExperienceReviewModelRuntime(
+      {
+        config: params.config,
+        agentId: params.agentId,
+        workspaceDir: params.workspaceDir,
+        ...(params.provider ? { provider: params.provider } : {}),
+        ...(params.model ? { model: params.model } : {}),
+        abortSignal,
+      },
+      async () => {
+        const { runEmbeddedAgent } = await import("../../agents/embedded-agent.js");
+        return await runEmbeddedAgent({
+          ...params,
+          abortSignal,
+          lane: reviews.lane,
+          agentHarnessId: "openclaw",
+          agentHarnessRuntimeOverride: "openclaw",
+          // Review prompts and cloned prefixes are sized for this exact model.
+          modelSelectionLocked: true,
+          modelFallbacksOverride: [],
+          requestedRouteResolution: "resolved",
+          sessionPersistence: "detached",
+          toolExecutionAllow: SKILL_WORKSHOP_REVIEW_TOOLS,
+          disableTrajectory: true,
+          silentExpected: true,
+          allowEmptyAssistantReplyAsSilent: true,
+          terminalReplyExpectation: "optional",
+          cleanupBundleMcpOnRunEnd: true,
+          verboseLevel: "off",
+        });
+      },
+    );
   } finally {
     params.preparedRunAdmission.close();
     clearAgentRunContext(params.runId);
