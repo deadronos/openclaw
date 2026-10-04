@@ -8,6 +8,7 @@ import { clearAgentRunContext, registerAgentRunContext } from "../../infra/agent
 import { onGatewayWorkMetricsChanged } from "../../infra/gateway-work-metrics-events.js";
 import { createBackgroundWorkOwner } from "../../process/background-work.js";
 import { getGatewayRestartDrainSignal } from "../../process/gateway-work-admission.js";
+import { runWithExperienceReviewModelRuntime } from "./experience-review-model-runtime.js";
 
 const reviews = createBackgroundWorkOwner({ owner: "core:skill-workshop", maxConcurrent: 1 });
 
@@ -49,47 +50,62 @@ export async function runSkillWorkshopReview(
   try {
     yieldToForeground();
     abortSignal.throwIfAborted();
-    const { runEmbeddedAgent } = await import("../../agents/embedded-agent.js");
-    const result = await runEmbeddedAgent({
-      ...params,
-      abortSignal,
-      lane: reviews.lane,
-      agentHarnessId: "openclaw",
-      agentHarnessRuntimeOverride: "openclaw",
-      // Review is best-effort work: never spend interactive capacity on retries.
-      modelSelectionLocked: true,
-      modelFallbacksOverride: [],
-      retryTransientErrors: false,
-      allowAuthProfileFallback: false,
-      authProfileFailurePolicy: "local_transient",
-      requestedRouteResolution: "resolved",
-      sessionPersistence: "detached",
-      promptCacheKey: undefined,
-      sourceReplyDeliveryMode: undefined,
-      toolsAllow: ["skill_workshop"],
-      toolExecutionAllow: ["skill_workshop"],
-      codeModeOverride: false,
-      disableToolSearch: true,
-      promptMode: "minimal",
-      bootstrapContextMode: "lightweight",
-      skillsSnapshot: undefined,
-      extraSystemPrompt: undefined,
-      clientTools: undefined,
-      conversationRecall: undefined,
-      gitCoauthorPrompt: undefined,
-      forceMessageTool: false,
-      forceHeartbeatTool: false,
-      contextTokenBudget: 16_384,
-      streamParams: { maxTokens: 2_048 },
-      thinkLevel: "low",
-      timeoutMs: Math.min(params.timeoutMs, 120_000),
-      disableTrajectory: true,
-      silentExpected: true,
-      allowEmptyAssistantReplyAsSilent: true,
-      terminalReplyExpectation: "optional",
-      cleanupBundleMcpOnRunEnd: true,
-      verboseLevel: "off",
-    });
+    // The foreground turn closed before this detached review, so the run inherits
+    // no plugin generation scope; re-admit its own prepared model runtime lease
+    // so plugin-owned models (e.g. opencode-go) still resolve.
+    const result = await runWithExperienceReviewModelRuntime(
+      {
+        config: params.config,
+        agentId: params.agentId,
+        workspaceDir: params.workspaceDir,
+        ...(params.provider ? { provider: params.provider } : {}),
+        ...(params.model ? { model: params.model } : {}),
+        abortSignal,
+      },
+      async () => {
+        const { runEmbeddedAgent } = await import("../../agents/embedded-agent.js");
+        return await runEmbeddedAgent({
+          ...params,
+          abortSignal,
+          lane: reviews.lane,
+          agentHarnessId: "openclaw",
+          agentHarnessRuntimeOverride: "openclaw",
+          // Review is best-effort work: never spend interactive capacity on retries.
+          modelSelectionLocked: true,
+          modelFallbacksOverride: [],
+          retryTransientErrors: false,
+          allowAuthProfileFallback: false,
+          authProfileFailurePolicy: "local_transient",
+          requestedRouteResolution: "resolved",
+          sessionPersistence: "detached",
+          promptCacheKey: undefined,
+          sourceReplyDeliveryMode: undefined,
+          toolsAllow: ["skill_workshop"],
+          toolExecutionAllow: ["skill_workshop"],
+          codeModeOverride: false,
+          disableToolSearch: true,
+          promptMode: "minimal",
+          bootstrapContextMode: "lightweight",
+          skillsSnapshot: undefined,
+          extraSystemPrompt: undefined,
+          clientTools: undefined,
+          conversationRecall: undefined,
+          gitCoauthorPrompt: undefined,
+          forceMessageTool: false,
+          forceHeartbeatTool: false,
+          contextTokenBudget: 16_384,
+          streamParams: { maxTokens: 2_048 },
+          thinkLevel: "low",
+          timeoutMs: Math.min(params.timeoutMs, 120_000),
+          disableTrajectory: true,
+          silentExpected: true,
+          allowEmptyAssistantReplyAsSilent: true,
+          terminalReplyExpectation: "optional",
+          cleanupBundleMcpOnRunEnd: true,
+          verboseLevel: "off",
+        });
+      },
+    );
     foreground.signal.throwIfAborted();
     return result;
   } finally {
