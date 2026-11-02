@@ -50,6 +50,7 @@ let admission: PreparedAgentRunAdmission;
 let operation: ReplyOperation;
 let handle: EmbeddedAgentQueueHandle;
 let runtimeOwnsLiveness: boolean;
+let watchdogAttempt: ReturnType<ReplyOperation["watchdog"]["attachAttempt"]>;
 const abort = vi.fn();
 const queueMessage = vi.fn(async () => {});
 
@@ -83,7 +84,7 @@ beforeEach(async () => {
   if (!caller) {
     throw new Error("liveness fixture requires an admitted Gateway caller");
   }
-  const watchdogAttempt = operation.watchdog.attachAttempt({
+  watchdogAttempt = operation.watchdog.attachAttempt({
     assertCurrent: () => assertSessionControllerOperation(operation),
   });
   await withGatewayToolCallerIdentity(
@@ -275,4 +276,20 @@ it("does not let a probe revive closed admission", () => {
     return true;
   };
   expect(resolveActiveEmbeddedRunRecoveryBlocker(sessionId)).toBeUndefined();
+});
+
+it("classifies a tool-level runtime wait when the handle exposes no probe", () => {
+  // The embedded runner defines no ownsLiveness; agents_wait still registers a runtime wait.
+  handle.ownsLiveness = undefined;
+  const wait = watchdogAttempt.beginWait({ kind: "runtime_owned", isCurrent: () => true });
+  expect(resolveActiveEmbeddedRunRecoveryBlocker(sessionId)).toBe("runtime_owned_wait");
+  wait.close();
+  expect(resolveActiveEmbeddedRunRecoveryBlocker(sessionId)).toBeUndefined();
+});
+
+it("ignores a tool-level wait that is no longer current", () => {
+  handle.ownsLiveness = undefined;
+  const wait = watchdogAttempt.beginWait({ kind: "runtime_owned", isCurrent: () => false });
+  expect(resolveActiveEmbeddedRunRecoveryBlocker(sessionId)).toBeUndefined();
+  wait.close();
 });

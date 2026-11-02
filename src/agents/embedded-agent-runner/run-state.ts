@@ -349,11 +349,22 @@ export function resolveRegisteredEmbeddedRunRecoveryBlocker(
   if (!isCurrent()) {
     return "stale_session_state";
   }
-  return ownsLiveness &&
-    ACTIVE_EMBEDDED_RUNS_BY_RUN_ID.get(authority.operationalRunInstance.runId) === registration &&
-    getActiveAgentRunDelegatedAuthority(authority.operationalRunInstance) === authority
-    ? "runtime_owned_wait"
-    : undefined;
+  if (
+    ACTIVE_EMBEDDED_RUNS_BY_RUN_ID.get(authority.operationalRunInstance.runId) !== registration ||
+    getActiveAgentRunDelegatedAuthority(authority.operationalRunInstance) !== authority
+  ) {
+    return undefined;
+  }
+  // The embedded runner exposes no handle probe; a live tool-level runtime wait
+  // (agents_wait, agents.run) still owns liveness through beginWait.
+  const runtimeWaitOwnsLiveness =
+    handle.ownsLiveness === undefined &&
+    handle.isAborted?.() !== true &&
+    handle.isStopped?.() !== true &&
+    registration.operation?.watchdog
+      .snapshot()
+      .waits.some((wait) => wait.kind === "runtime_owned") === true;
+  return ownsLiveness || runtimeWaitOwnsLiveness ? "runtime_owned_wait" : undefined;
 }
 
 export const ACTIVE_EMBEDDED_RUN_SNAPSHOTS = embeddedRunState.snapshots;
