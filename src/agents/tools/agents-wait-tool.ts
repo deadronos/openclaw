@@ -29,6 +29,8 @@ import {
 } from "./gateway-caller-context.js";
 
 const MAX_WAIT_IDS = 1_000;
+/** Registry rows that never become readable must not spin the read loop. */
+const NOT_READY_BACKOFF_MS = 25;
 
 const finalAnswerLoader = createLazyImportLoader(
   () => import("../subagents/announce/subagent-announce-output.js"),
@@ -402,7 +404,11 @@ async function waitForCollectorState(params: CollectorWaitParams) {
       // Join the read before releasing listeners, even when cancellation wins.
       assertNotAborted();
       if (!read.ready) {
+        // Rows can land after the read; back off instead of spinning a core.
         await yieldToEventLoop();
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, NOT_READY_BACKOFF_MS);
+        });
         continue;
       }
       const state = read.value;
@@ -526,7 +532,9 @@ async function collectNativeSubagentResults(
     currentSessionKeys,
     currentAgentId: params.currentAgentId,
     config: params.config,
-    timeoutMs: params.awaitResults ? undefined : timeoutSeconds * 1_000,
+    // awaitResults joins settlement without a model-facing timeout, but a run that never
+    // retires must still return: the safety ceiling surfaces pending ids instead of parking.
+    timeoutMs: params.awaitResults ? swarm.waitTimeoutSecondsMax * 1_000 : timeoutSeconds * 1_000,
     waitForAll: params.awaitResults,
     signal: params.signal,
     assertCurrent: params.assertCurrent,
