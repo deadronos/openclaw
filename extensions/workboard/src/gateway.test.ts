@@ -475,7 +475,7 @@ describe("workboard gateway methods", () => {
       { summary: "closed" },
       {
         card: {
-          status: "done",
+          status: "review",
           metadata: {
             comments: expect.arrayContaining([expect.objectContaining({ body: "closed" })]),
           },

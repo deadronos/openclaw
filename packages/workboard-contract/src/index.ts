@@ -370,6 +370,15 @@ export type WorkboardNotificationSubscription = {
   updatedAt: number;
 };
 
+export type WorkboardReviewStatus = "pending" | "accepted" | "rejected" | "skipped";
+export type WorkboardReviewState = {
+  required: boolean;
+  status: WorkboardReviewStatus;
+  reason?: string;
+  actor?: string;
+  at: number;
+};
+
 export type WorkboardMetadata = {
   attempts?: WorkboardRunAttempt[];
   comments?: WorkboardComment[];
@@ -388,6 +397,7 @@ export type WorkboardMetadata = {
   stale?: WorkboardStaleState;
   lifecycleStatusSourceUpdatedAt?: number;
   failureCount?: number;
+  review?: WorkboardReviewState;
 };
 
 export type WorkboardCard = {

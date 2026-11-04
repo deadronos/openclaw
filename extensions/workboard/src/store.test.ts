@@ -25,6 +25,22 @@ import {
 } from "./test/sqlite-store.js";
 
 const createStore = () => createWorkboardSqliteTestStore({ createStores: createKernelStores });
+
+async function completeSkippingReview(
+  store: ReturnType<typeof createStore>,
+  id: string,
+  input: Record<string, unknown> = {},
+) {
+  return await store.complete(id, {
+    ...input,
+    skipReview: true,
+    skipReviewReason:
+      typeof input.skipReviewReason === "string"
+        ? input.skipReviewReason
+        : "test fixture: small task",
+  });
+}
+
 function createCard(
   storeFixture: WorkboardStore,
   title: string,
@@ -818,7 +834,11 @@ describe("WorkboardStore", () => {
     expect(pending.events?.at(-1)).toMatchObject({ kind: "proof_added" });
     expect(pendingProof).toMatchObject({ status: "unknown", command: proofInput.command });
     await expectRejected(
-      store.complete(card.id, { ownerId: "main", token: "token-1", proofId: pendingProof?.id }),
+      completeSkippingReview(store, card.id, {
+        ownerId: "main",
+        token: "token-1",
+        proofId: pendingProof?.id,
+      }),
       "proof is required to resolve a pending proof.",
     );
     expect(pending.metadata?.artifacts?.length ?? 0).toBeLessThan(artifactCountBefore);
@@ -826,7 +846,7 @@ describe("WorkboardStore", () => {
       24 * 1024,
     );
 
-    const completed = await store.complete(card.id, {
+    const completed = await completeSkippingReview(store, card.id, {
       ownerId: "main",
       token: "token-1",
       summary: "Proof survived metadata trimming.",
@@ -852,7 +872,7 @@ describe("WorkboardStore", () => {
     const latest = { ...older, id: "proof-latest", createdAt: 2_000 };
     const card = await createCard(store, "Proof history", { metadata: { proof: [older, latest] } });
     await expectRejected(
-      store.complete(card.id, {
+      completeSkippingReview(store, card.id, {
         proofId: latest.id,
         proof: { status: "passed", command: "different evidence" },
       }),
@@ -861,13 +881,15 @@ describe("WorkboardStore", () => {
     await expect(store.get(card.id)).resolves.toEqual(card);
 
     const completion = { proofId: latest.id, proof: { ...proofInput, status: "passed" } };
-    const completed = await store.complete(card.id, completion);
+    const completed = await completeSkippingReview(store, card.id, completion);
     const expected = [older, { ...latest, status: "passed" }];
     expect(completed.metadata?.proof).toEqual(expected);
-    expect((await store.complete(card.id, completion)).metadata?.proof).toEqual(expected);
+    expect((await completeSkippingReview(store, card.id, completion)).metadata?.proof).toEqual(
+      expected,
+    );
     const reopened = await store.update(card.id, { status: "todo" });
     await expectRejected(
-      store.complete(card.id, { proofId: latest.id, proof: { status: "failed" } }),
+      completeSkippingReview(store, card.id, { proofId: latest.id, proof: { status: "failed" } }),
       "completion proof status does not match existing proof: proof-latest",
     );
     await expect(store.get(card.id)).resolves.toEqual(reopened);
@@ -1150,7 +1172,7 @@ describe("WorkboardStore", () => {
     await expectRejected(store.claim(implicit.id, { ownerId: "main" }), /scheduled/);
     await expectRejected(store.move(manual.id, "running", manual.position), /scheduled/);
 
-    await store.complete(parent.id, { summary: "Parent done." });
+    await completeSkippingReview(store, parent.id, { summary: "Parent done." });
     expect((await store.dispatch(5_000)).promoted).toEqual([]);
     await expectStored(store, dependent.id, { status: "scheduled" });
 
@@ -1190,7 +1212,10 @@ describe("WorkboardStore", () => {
     await expectRejected(store.move(child.id, "done", child.position), /dependencies/);
     await expectRejected(store.update(child.id, { status: "ready" }), /dependencies/);
     await expectRejected(store.update(child.id, { status: "done" }), /dependencies/);
-    await expectRejected(store.complete(child.id, { summary: "Too early." }), /dependencies/);
+    await expectRejected(
+      completeSkippingReview(store, child.id, { summary: "Too early." }),
+      /dependencies/,
+    );
 
     const linked = await store.update(child.id, {
       metadata: {
@@ -1226,7 +1251,7 @@ describe("WorkboardStore", () => {
     );
     await expectRejected(store.claim(child.id, { ownerId: "main" }), /dependencies/);
 
-    await store.complete(parent.id, { summary: "Parent done." });
+    await completeSkippingReview(store, parent.id, { summary: "Parent done." });
     const dispatch = await store.dispatch();
 
     expect(dispatch.promoted).toMatchObject([
@@ -1262,19 +1287,19 @@ describe("WorkboardStore", () => {
     const store = createStore();
     const parent = await createCard(store, "Parent");
     const child = await createCard(store, "Child", { parents: [parent.id] });
-    await store.complete(parent.id, { summary: "Parent done." });
+    await completeSkippingReview(store, parent.id, { summary: "Parent done." });
     await store.claim(child.id, { ownerId: "worker" });
     await store.releaseClaim(child.id, { ownerId: "worker", status: "review" });
 
     const reviewed = await store.claim(child.id, { ownerId: "reviewer" });
     expect(reviewed.card.status).toBe("review");
     await expect(
-      store.complete(child.id, { summary: "Accepted.", ownerId: "reviewer" }),
+      completeSkippingReview(store, child.id, { summary: "Accepted.", ownerId: "reviewer" }),
     ).resolves.toMatchObject({ status: "done" });
 
     const reopened = await createCard(store, "Reopened parent");
     const dependent = await createCard(store, "Dependent", { parents: [reopened.id] });
-    await store.complete(reopened.id, { summary: "Done." });
+    await completeSkippingReview(store, reopened.id, { summary: "Done." });
     await store.claim(dependent.id, { ownerId: "worker" });
     await store.releaseClaim(dependent.id, { ownerId: "worker", status: "review" });
     await store.update(reopened.id, { status: "running" });
@@ -1295,7 +1320,7 @@ describe("WorkboardStore", () => {
       ),
     );
 
-    await store.complete(parent.id, { summary: "Parent done." });
+    await completeSkippingReview(store, parent.id, { summary: "Parent done." });
     entriesSpy.mockClear();
     const dispatch = await store.dispatch();
 
@@ -1460,7 +1485,7 @@ describe("WorkboardStore", () => {
       runId: "replacement-run",
       execution: { ...legacy.execution, runId: "replacement-run" },
     });
-    await store.complete(card.id, { proof: { status: "passed" } });
+    await completeSkippingReview(store, card.id, { proof: { status: "passed" } });
 
     expect(await store.get(card.id)).toMatchObject({
       title: "Resume existing work",
@@ -1490,7 +1515,7 @@ describe("WorkboardStore", () => {
         ? undefined
         : await store.addWorkerLog(card.id, { message: "Verification ready.", runId });
       const subscription = await store.subscribeNotifications({ runId });
-      await store.complete(card.id, {
+      await completeSkippingReview(store, card.id, {
         ...(trimMetadata ? {} : { summary: "Verified." }),
         proof: {
           status: "passed",
@@ -1540,7 +1565,7 @@ describe("WorkboardStore", () => {
     });
 
     await expectRejected(
-      store.complete(card.id, {
+      completeSkippingReview(store, card.id, {
         summary: "Must not be committed.",
         proof: { status: "passed", command: "test-command" },
       }),
@@ -1558,7 +1583,7 @@ describe("WorkboardStore", () => {
     const child = await createCard(store, "Follow-up", { parents: [card.id] });
     const claimed = await store.claim(card.id, { ownerId: "main", token: "token-1" });
 
-    const completed = await store.complete(claimed.card.id, {
+    const completed = await completeSkippingReview(store, claimed.card.id, {
       ownerId: "main",
       token: "token-1",
       summary: "Implemented and verified.",
@@ -1572,7 +1597,10 @@ describe("WorkboardStore", () => {
       execution: { status: "done" },
       metadata: {
         attempts: [{ status: "succeeded", endedAt: expect.any(Number) }],
-        comments: [{ body: "Implemented and verified." }],
+        comments: [
+          { body: "Implemented and verified." },
+          { body: "Review skipped: test fixture: small task" },
+        ],
         proof: [{ status: "passed" }],
         artifacts: [{ path: "/tmp/log.txt" }],
         automation: { summary: "Implemented and verified.", createdCardIds: [child.id] },
@@ -1614,7 +1642,8 @@ describe("WorkboardStore", () => {
     });
     expect(blocked.metadata?.claim).toBeUndefined();
 
-    const recovered = await store.complete(
+    const recovered = await completeSkippingReview(
+      store,
       (
         await createCard(store, "Recovered work", {
           status: "running",
@@ -1762,7 +1791,7 @@ describe("WorkboardStore", () => {
       maxRetries: 1,
       metadata: { failureCount: 2 },
     });
-    await store.complete(parent.id, { summary: "Parent done." });
+    await completeSkippingReview(store, parent.id, { summary: "Parent done." });
 
     const dependentDispatch = await store.dispatch();
 
@@ -2092,20 +2121,25 @@ describe("WorkboardStore", () => {
     const unrelated = await createCard(store, "Unrelated");
 
     await expectRejected(
-      store.complete(parent.id, { createdCardIds: [unrelated.id] }, null),
+      completeSkippingReview(store, parent.id, { createdCardIds: [unrelated.id] }, null),
       /not linked/,
     );
     const spoofed = await createCard(store, "Spoofed", { createdByCardId: parent.id });
 
     await expectRejected(
-      store.complete(parent.id, { createdCardIds: [spoofed.id] }, null),
+      completeSkippingReview(store, parent.id, { createdCardIds: [spoofed.id] }, null),
       /not linked/,
     );
 
     const child = await createCard(store, "Child", { parents: [parent.id] });
 
     await expect(
-      store.complete(parent.id, { createdCardIds: [child.id], summary: "done" }, null),
+      completeSkippingReview(
+        store,
+        parent.id,
+        { createdCardIds: [child.id], summary: "done" },
+        null,
+      ),
     ).resolves.toMatchObject({
       status: "done",
       metadata: { automation: { createdCardIds: [child.id] } },
@@ -2169,7 +2203,7 @@ describe("WorkboardStore", () => {
     });
     const archived = await store.archive(historical.id, true);
     const active = await createCard(store, "Active notifications", { boardId: "ops" });
-    await store.complete(active.id, { summary: "Still active." });
+    await completeSkippingReview(store, active.id, { summary: "Still active." });
     const boardSubscription = await store.subscribeNotifications({
       boardId: "ops",
       target: "session:operator",
@@ -2227,7 +2261,7 @@ describe("WorkboardStore", () => {
       target: "session:operator",
       eventKinds: ["completed"],
     });
-    await store.complete(card.id, { summary: "Done." });
+    await completeSkippingReview(store, card.id, { summary: "Done." });
 
     const advancing = store.advanceNotificationEvents({ subscriptionId: subscription.id });
     await cursorWriteStarted.promise;
@@ -2329,8 +2363,8 @@ describe("WorkboardStore", () => {
       target: "session:operator",
     });
 
-    await store.complete(unrelated.id, { summary: "Other done." });
-    await store.complete(matching.id, { summary: "Matching done." });
+    await completeSkippingReview(store, unrelated.id, { summary: "Other done." });
+    await completeSkippingReview(store, matching.id, { summary: "Matching done." });
 
     await expect(store.notificationEvents({ subscriptionId: subscription.id })).resolves.toEqual({
       subscription: expect.objectContaining({ id: subscription.id }),
@@ -2683,7 +2717,7 @@ describe("WorkboardStore", () => {
       ),
     );
     await expect(
-      store.complete(parent.id, {
+      completeSkippingReview(store, parent.id, {
         createdCardIds: result.children.map((child) => child.id),
         summary: "Children recorded.",
       }),
@@ -2886,6 +2920,161 @@ describe("Workboard dependency and scheduled promotion", () => {
     await expect(store.claim(card.id, { ownerId: "worker" })).resolves.toMatchObject({
       card: { id: card.id, status: "running" },
     });
+  });
+
+  it("completes into review by default and records a pending review", async () => {
+    const store = createStore();
+    const card = await createCard(store, "Code change", { status: "running", labels: ["code"] });
+    await store.claim(card.id, { ownerId: "worker", token: "token-review" });
+
+    const completed = await store.complete(card.id, {
+      ownerId: "worker",
+      token: "token-review",
+      summary: "Implementation finished.",
+      proof: { status: "passed", command: "pnpm test" },
+    });
+
+    expect(completed.status).toBe("review");
+    expect(completed.completedAt).toBeUndefined();
+    expect(completed.metadata?.review).toMatchObject({
+      required: true,
+      status: "pending",
+    });
+    expect(completed.metadata?.claim).toBeUndefined();
+  });
+
+  it("requires a reason to reject review back to running and records it", async () => {
+    const store = createStore();
+    const card = await createCard(store, "Reviewed change", {
+      status: "running",
+      labels: ["code"],
+    });
+    await store.claim(card.id, { ownerId: "worker", token: "token-reject" });
+    await store.complete(card.id, {
+      ownerId: "worker",
+      token: "token-reject",
+      summary: "Ready for review.",
+    });
+
+    await expectRejected(store.move(card.id, "running"), "A rejection reason is required");
+    const rejected = await store.move(
+      card.id,
+      "running",
+      undefined,
+      { ownerId: "reviewer" },
+      {
+        reason: "Missing tests for the failure path.",
+      },
+    );
+
+    expect(rejected.status).toBe("running");
+    expect(rejected.metadata?.review).toMatchObject({
+      required: true,
+      status: "rejected",
+      reason: "Missing tests for the failure path.",
+      actor: "reviewer",
+    });
+    expect(rejected.metadata?.comments?.at(-1)?.body).toBe(
+      "Review rejected: Missing tests for the failure path.",
+    );
+  });
+
+  it("accepts review into done with a verdict", async () => {
+    const store = createStore();
+    const card = await createCard(store, "External page", {
+      status: "running",
+      labels: ["external"],
+    });
+    await store.claim(card.id, { ownerId: "worker", token: "token-accept" });
+    await store.complete(card.id, {
+      ownerId: "worker",
+      token: "token-accept",
+      summary: "Published.",
+    });
+
+    const accepted = await store.move(
+      card.id,
+      "done",
+      undefined,
+      { ownerId: "reviewer" },
+      {
+        reason: "Checked the published page.",
+      },
+    );
+
+    expect(accepted.status).toBe("done");
+    expect(accepted.completedAt).toBeGreaterThan(0);
+    expect(accepted.metadata?.review).toMatchObject({
+      required: true,
+      status: "accepted",
+      reason: "Checked the published page.",
+      actor: "reviewer",
+    });
+  });
+
+  it("blocks direct running to done and allows an explicit small-task skip", async () => {
+    const store = createStore();
+    const card = await createCard(store, "Small fix", { status: "running" });
+    await store.claim(card.id, { ownerId: "worker", token: "token-skip" });
+
+    await expectRejected(
+      store.move(card.id, "done", undefined, { ownerId: "worker", token: "token-skip" }),
+      "must go through review",
+    );
+    const done = await store.complete(card.id, {
+      ownerId: "worker",
+      token: "token-skip",
+      summary: "Typo fixed.",
+      skipReview: true,
+      skipReviewReason: "One-line typo, no behaviour change.",
+    });
+
+    expect(done.status).toBe("done");
+    expect(done.metadata?.review).toMatchObject({
+      required: true,
+      status: "skipped",
+      reason: "One-line typo, no behaviour change.",
+    });
+    expect(done.metadata?.comments?.map((comment) => comment.body)).toContain(
+      "Review skipped: One-line typo, no behaviour change.",
+    );
+  });
+
+  it("refuses to skip review for code and external-facing cards", async () => {
+    const store = createStore();
+    const card = await createCard(store, "Ship code", { status: "running", labels: ["code"] });
+    await store.claim(card.id, { ownerId: "worker", token: "token-noskip" });
+
+    await expectRejected(
+      store.complete(card.id, {
+        ownerId: "worker",
+        token: "token-noskip",
+        summary: "Done.",
+        skipReview: true,
+        skipReviewReason: "No time for review.",
+      }),
+      "Code and external-facing cards require review",
+    );
+  });
+
+  it("routes ten recent-style completions into review", async () => {
+    const store = createStore();
+    const statuses: string[] = [];
+    for (let index = 0; index < 10; index += 1) {
+      const card = await createCard(store, `Recent style ${index}`, {
+        status: "running",
+        labels: index % 2 === 0 ? ["code"] : ["research"],
+      });
+      const token = `token-recent-${index}`;
+      await store.claim(card.id, { ownerId: "worker", token });
+      const completed = await store.complete(card.id, {
+        ownerId: "worker",
+        token,
+        summary: `Completion ${index}`,
+      });
+      statuses.push(completed.status);
+    }
+    expect(statuses).toEqual(Array.from({ length: 10 }, () => "review"));
   });
 });
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

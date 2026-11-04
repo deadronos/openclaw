@@ -31,6 +31,7 @@ import {
   type WorkboardNotificationSubscription,
   type WorkboardPriority,
   type WorkboardProof,
+  type WorkboardReviewState,
   type WorkboardRunAttempt,
   type WorkboardStatus,
   type WorkboardTemplateId,
@@ -871,10 +872,33 @@ export function normalizeMetadata(
     lifecycleStatusSourceUpdatedAt: hasLifecycleStatusSourceUpdatedAt
       ? normalizeTimestamp(record.lifecycleStatusSourceUpdatedAt, 0)
       : fallback.lifecycleStatusSourceUpdatedAt,
+    review: normalizeReviewState(record.review) ?? fallback.review,
     failureCount:
       resolveOptionalIntegerOption(record.failureCount, { min: 0 }) ?? fallback.failureCount,
   };
   return trimMetadataToBudget(normalized, options);
+}
+
+function normalizeReviewState(value: unknown): WorkboardReviewState | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const status = normalizeEnumValue(
+    value.status,
+    ["pending", "accepted", "rejected", "skipped"] as const,
+    "pending",
+  );
+  return {
+    required: value.required === true,
+    status,
+    ...(normalizeBoundedString(value.reason, undefined, 1000, "review reason")
+      ? { reason: normalizeBoundedString(value.reason, undefined, 1000, "review reason") }
+      : {}),
+    ...(normalizeBoundedString(value.actor, undefined, 120, "review actor")
+      ? { actor: normalizeBoundedString(value.actor, undefined, 120, "review actor") }
+      : {}),
+    at: normalizeTimestamp(value.at, Date.now()),
+  };
 }
 
 export function normalizeExecution(record: unknown): WorkboardExecution | undefined {

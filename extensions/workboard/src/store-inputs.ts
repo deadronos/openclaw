@@ -118,6 +118,8 @@ export type WorkboardCompleteInput = WorkboardMutationScope & {
   proofId?: unknown;
   artifacts?: unknown;
   createdCardIds?: unknown;
+  skipReview?: unknown;
+  skipReviewReason?: unknown;
 };
 export type WorkboardBlockInput = WorkboardMutationScope & {
   reason?: unknown;
