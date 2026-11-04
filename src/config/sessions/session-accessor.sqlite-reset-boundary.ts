@@ -1,3 +1,5 @@
+import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
+import { BACKGROUND_RESULT_PLACEMENT_CUSTOM_TYPE } from "../../../packages/agent-core/src/harness/session/background-result-placement.js";
 import { clearSessionProgressCardForReset } from "../../session-cards/progress-card-store.js";
 import { emitSessionLifecycleEvent } from "../../sessions/session-lifecycle-events.js";
 import {
@@ -31,10 +33,19 @@ export function appendSessionResetBoundary(
     resolveResetBoundaryHeaderCwd(previousEntry, boundary.cwd),
     projection,
   );
+  const navigation = loadTranscriptEventsFromDatabase(database, scope.sessionId, {
+    projection: "reset-boundary",
+  });
+  // Navigation omits placement data and result identity, and compressed rows persist that shape.
+  const needsStoredEvents =
+    boundary.context === "preserve-tail" &&
+    navigation.some(
+      (event) => asOptionalRecord(event)?.customType === BACKGROUND_RESULT_PLACEMENT_CUSTOM_TYPE,
+    );
   const event = buildSessionResetBoundaryEvent({
-    events: loadTranscriptEventsFromDatabase(database, scope.sessionId, {
-      projection: "reset-boundary",
-    }),
+    events: needsStoredEvents
+      ? loadTranscriptEventsFromDatabase(database, scope.sessionId)
+      : navigation,
     ...boundary,
   });
   if (appendTranscriptEventInTransaction(database, scope, event, projection) === false) {
