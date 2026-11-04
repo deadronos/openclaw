@@ -1,5 +1,6 @@
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { BACKGROUND_RESULT_PLACEMENT_CUSTOM_TYPE } from "../../../packages/agent-core/src/harness/session/background-result-placement.js";
 import * as agentDatabase from "../../state/openclaw-agent-db.js";
 import {
   applySessionEntryLifecycleMutation,
@@ -202,4 +203,57 @@ it("preserves navigation nulls and raw parser semantics in reset reads", async (
   for (const projection of [undefined, "reset-boundary"] as const) {
     expect(() => read({ projection })).toThrow(SyntaxError);
   }
+});
+
+it("plans a preserved reset from stored background result placements", async () => {
+  const sessionId = "reset-placement";
+  const sessionKey = "agent:main:reset-placement";
+  await upsertSessionEntryCore({ sessionKey, storePath }, { sessionId, updatedAt: 10 });
+  const database = agentDatabase.openOpenClawAgentDatabase({
+    agentId: "main",
+    path: resolveSqliteTargetFromSessionStorePath(storePath, { agentId: "main" }).path,
+  });
+  const message = (id: string, parentId: string | null, body: Record<string, unknown>) => ({
+    type: "message",
+    id,
+    parentId,
+    timestamp: "2026-07-22T00:00:00.000Z",
+    message: { content: [{ type: "text", text: id }], timestamp: 1, ...body },
+  });
+  const assistant = { role: "assistant", api: "openai-responses", stopReason: "stop" };
+  const events = [
+    { type: "session", id: sessionId, version: 3, cwd: "/workspace" },
+    message("pending", null, {
+      ...assistant,
+      provider: "openclaw",
+      model: "automation-result",
+      excludeFromContext: true,
+      openclawModelPlacement: "pending",
+    }),
+    message("user", "pending", { role: "user" }),
+    message("answer", "user", { ...assistant, provider: "openai", model: "gpt" }),
+    {
+      type: "custom",
+      id: "placement",
+      parentId: "answer",
+      timestamp: "2026-07-22T00:00:00.000Z",
+      customType: BACKGROUND_RESULT_PLACEMENT_CUSTOM_TYPE,
+      data: { afterEntryId: "answer", resultEntryIds: ["pending"] },
+    },
+  ];
+  const insert = createTranscriptEventInserter(database.db, sessionId);
+  events.forEach((event, seq) => insert({ seq, eventJson: JSON.stringify(event), createdAt: seq }));
+
+  await resetSessionEntryLifecycle({
+    storePath,
+    target: { canonicalKey: sessionKey, storeKeys: [sessionKey] },
+    resetBoundary: { context: "preserve-tail", reason: "daily", cwd: "/workspace" },
+    buildNextEntry: () => ({ sessionId, updatedAt: 20 }),
+  });
+
+  expect((await loadTranscriptEvents({ sessionId, sessionKey, storePath })).at(-1)).toMatchObject({
+    type: "reset",
+    reason: "daily",
+    firstKeptEntryId: "user",
+  });
 });
