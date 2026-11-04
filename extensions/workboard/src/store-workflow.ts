@@ -5,6 +5,7 @@ import type {
   WorkboardCard,
   WorkboardClaim,
   WorkboardMetadata,
+  WorkboardReviewState,
   WorkboardRunAttempt,
 } from "@openclaw/workboard-contract";
 import {
@@ -57,6 +58,19 @@ import {
 } from "./store-normalizers.js";
 import { WorkboardPromoteStore } from "./store-promote.js";
 import { finishRun } from "./store-status-write.js";
+
+const REVIEW_MANDATORY_LABELS = new Set([
+  "code",
+  "external",
+  "external-facing",
+  "publish",
+  "release",
+  "deploy",
+  "security",
+]);
+function hasReviewMandatoryLabel(card: WorkboardCard): boolean {
+  return card.labels.some((label) => REVIEW_MANDATORY_LABELS.has(label.toLowerCase()));
+}
 
 class WorkboardClaimRefusedError extends Error {
   constructor(message: string) {
@@ -269,11 +283,44 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
           .filter((artifact): artifact is WorkboardArtifact => artifact !== null)
           .slice(-MAX_CARD_ARTIFACTS)
       : [];
-    const finished = finishRun(existing, "done", now);
+    const skipReview = input.skipReview === true;
+    const skipReviewReason = normalizeBoundedString(
+      input.skipReviewReason,
+      undefined,
+      1000,
+      "skip review reason",
+    );
+    if (skipReview) {
+      if (!skipReviewReason) {
+        throw new Error("skipReviewReason is required when skipping review.");
+      }
+      if (hasReviewMandatoryLabel(existing)) {
+        throw new Error(
+          "Code and external-facing cards require review; skipReview is not allowed.",
+        );
+      }
+    }
+    const review: WorkboardReviewState = skipReview
+      ? {
+          required: true,
+          status: "skipped",
+          reason: skipReviewReason,
+          ...(normalizeOptionalString(scope?.ownerId)
+            ? { actor: normalizeOptionalString(scope?.ownerId) }
+            : {}),
+          at: now,
+        }
+      : { required: true, status: "pending", at: now };
+    const finished = finishRun(existing, skipReview ? "done" : "review", now);
     const metadata = clearDiagnostics(finished.metadata, ["missing_proof"]);
+    const reviewMessage = capText(summary, 240);
     const notifications = this.appendNotification(metadata, now, {
       kind: "completed",
-      message: capText(summary, 240) ?? "Workboard card completed.",
+      message: skipReview
+        ? (reviewMessage ?? "Workboard card completed.")
+        : reviewMessage
+          ? `Ready for review: ${reviewMessage}`
+          : "Workboard card ready for review.",
       ...(cardSessionKey(existing) ? { sessionKey: cardSessionKey(existing) } : {}),
       ...(cardRunId(existing) ? { runId: cardRunId(existing) } : {}),
     });
@@ -284,7 +331,12 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         metadata: {
           ...metadata,
           automation: { ...metadata.automation, summary, createdCardIds },
-          comments: appendComment(metadata.comments, summary, now),
+          review,
+          comments: appendComment(
+            appendComment(metadata.comments, summary, now),
+            skipReviewReason ? `Review skipped: ${skipReviewReason}` : undefined,
+            now,
+          ),
           proof: appendCompletionProof(metadata.proof, proof, proofId),
           artifacts: artifacts.length
             ? [...(metadata.artifacts ?? []), ...artifacts].slice(-MAX_CARD_ARTIFACTS)
@@ -520,7 +572,12 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       const updatedParent = completeParent
         ? await this.completeDirect(
             parent.id,
-            { summary, createdCardIds: children.map((child) => child.id) },
+            {
+              summary,
+              createdCardIds: children.map((child) => child.id),
+              skipReview: !hasReviewMandatoryLabel(parent),
+              skipReviewReason: "decomposition parent",
+            },
             scope,
           )
         : await (async () => {

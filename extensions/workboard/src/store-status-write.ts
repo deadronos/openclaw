@@ -20,10 +20,14 @@ import { trimMetadataToBudget } from "./store-normalizers.js";
 
 export function finishRun(
   card: WorkboardCard,
-  status: "done" | "blocked",
+  status: "done" | "blocked" | "review",
   now: number,
   reason?: string,
-): { status: "done" | "blocked"; execution?: WorkboardExecution; metadata: WorkboardMetadata } {
+): {
+  status: "done" | "blocked" | "review";
+  execution?: WorkboardExecution;
+  metadata: WorkboardMetadata;
+} {
   const execution =
     card.execution?.status === "running"
       ? { ...card.execution, status, updatedAt: now }
@@ -37,10 +41,10 @@ export function finishRun(
       attempts: closeRunningAttempts(
         card.metadata?.attempts,
         now,
-        status === "done" ? "succeeded" : "blocked",
+        status === "blocked" ? "blocked" : "succeeded",
         reason,
       ),
-      failureCount: status === "done" ? 0 : (card.metadata?.failureCount ?? 0) + 1,
+      failureCount: status === "blocked" ? (card.metadata?.failureCount ?? 0) + 1 : 0,
     },
   };
 }

@@ -173,6 +173,17 @@ const toolSchemas = {
     createdCardIds: Type.Optional(
       Type.Array(Type.String(), { description: "Cards created during this run." }),
     ),
+    skipReview: Type.Optional(
+      Type.Boolean({
+        description:
+          "Explicitly skip review for a small task. Never allowed for code or external-facing labels.",
+      }),
+    ),
+    skipReviewReason: Type.Optional(
+      Type.String({
+        description: "Why this small task can skip review. Required with skipReview.",
+      }),
+    ),
   }),
   attachment_add: strictObject({
     id: cardIdField(),
@@ -200,6 +211,12 @@ const toolSchemas = {
     status: Type.Union(
       WORKBOARD_STATUSES.map((status) => Type.Literal(status)),
       { description: "Target Workboard status." },
+    ),
+    reason: Type.Optional(
+      Type.String({
+        description:
+          "Review verdict or rejection reason. Required for review -> running; recorded on the card.",
+      }),
     ),
     token: claimTokenField("Claim token for claimed cards."),
   }),
@@ -363,7 +380,7 @@ export function createWorkboardTools(params: {
       name: "workboard_complete",
       label: "Workboard Complete",
       description:
-        "Complete a claimed Workboard card with a structured summary, proof, artifacts, and created-card manifest.",
+        "Complete a claimed Workboard card with a structured summary, proof, artifacts, and created-card manifest. Completion lands in review; only small or trivial tasks may skip review explicitly.",
       parameters: toolSchemas.complete,
       execute: claimedCardMutation((id, record, scope) => store.complete(id, record, scope)),
     },
@@ -424,7 +441,7 @@ export function createWorkboardTools(params: {
         "Move a Workboard card to another status. Claimed cards require matching claim scope.",
       parameters: toolSchemas.move,
       execute: scopedCardMutation((id, record, scope) =>
-        store.move(id, record.status, undefined, scope),
+        store.move(id, record.status, undefined, scope, { reason: record.reason }),
       ),
     },
     ...createWorkboardOrchestrationTools({ store, ownerId }),

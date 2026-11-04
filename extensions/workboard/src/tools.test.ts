@@ -507,6 +507,8 @@ describe("workboard tools", () => {
       summary: "Done.",
       createdCardIds: [child.id],
       proofId: pendingProof.proofId,
+      skipReview: true,
+      skipReviewReason: "test fixture: small task",
     });
     expect(completed.card).toMatchObject({
       status: "done",
@@ -755,10 +757,17 @@ async function expectRunFinished(
 }
 
 describe("workboard terminal status writes", () => {
+  it("refuses to settle running work as done without review", async () => {
+    const store = createWorkboardSqliteTestStore();
+    const { card, token } = await createDispatchedCard(store);
+    await expect(
+      runTool(toolSet(store, "agent-a"), "move", { id: card.id, status: "done", token }),
+    ).rejects.toThrow(/review before done/);
+    expect((await store.get(card.id))?.status).toBe("running");
+  });
+
   it.each([
-    ["move", "done"],
     ["move", "blocked"],
-    ["update", "done"],
     ["block", "blocked"],
   ] as const)("settles the run when %s writes %s", async (action, status) => {
     const store = createWorkboardSqliteTestStore();

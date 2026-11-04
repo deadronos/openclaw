@@ -472,6 +472,7 @@ export function registerWorkboardGatewayMethods(params: {
       store.move(readId(input), input.status, input.position, undefined, {
         expectedUpdatedAt: readExpectedUpdatedAt(input),
         assertOwnerCurrent: sessionMutationCommitGuard,
+        reason: input.reason,
       }),
     ),
   );
