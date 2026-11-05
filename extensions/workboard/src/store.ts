@@ -30,6 +30,7 @@ import {
 } from "./store-card-helpers.js";
 import { normalizeTimestamp } from "./store-coercion.js";
 import { isWorkboardClaimReclaimable, secondsToDurationMs } from "./store-constants.js";
+import { WorkboardHandoffStore } from "./store-handoff.js";
 import type {
   WorkboardBulkInput,
   WorkboardDiagnosticsResult,
@@ -39,7 +40,6 @@ import type {
   WorkboardOwnedCardPatch,
 } from "./store-inputs.js";
 import { capText, normalizeBoardId } from "./store-normalizers.js";
-import { WorkboardNotificationStore } from "./store-notifications.js";
 import { readCards } from "./store-read.js";
 import { finishRun } from "./store-status-write.js";
 
@@ -158,7 +158,7 @@ function executionAssociationPatch(
 }
 
 // Capability layers share persistence handles and the runtime's mutation ordering.
-export class WorkboardStore extends WorkboardNotificationStore {
+export class WorkboardStore extends WorkboardHandoffStore {
   async prepareExecutionLaunch(
     id: string,
     input: {
