@@ -389,6 +389,10 @@ export type WorkboardReviewState = {
   status: WorkboardReviewStatus;
   reason?: string;
   actor?: string;
+  /** The agent that completed the card. Written once by complete(), never rewritten by
+   * accept, reject or move — `actor` moves, this does not. Persisted inside review JSON
+   * because card metadata is columnar and a separate field would need a migration. */
+  completedBy?: string;
   at: number;
 };
 

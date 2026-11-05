@@ -6,6 +6,19 @@ import { createWorkboardSqliteTestStore } from "./test/sqlite-store.js";
 
 const createStore = () => createWorkboardSqliteTestStore({ createStores: createKernelStores });
 
+async function acceptedReviewCard(store: ReturnType<typeof createStore>) {
+  const card = await createCard(store, "Accepted review", { status: "running" });
+  await store.claim(card.id, { ownerId: "worker", token: "token-accepted" });
+  await store.complete(card.id, {
+    ownerId: "worker",
+    token: "token-accepted",
+    summary: "Ready for review.",
+    closureReason: "delivered",
+  });
+  await store.accept(card.id, {}, { ownerId: "reviewer" });
+  return card;
+}
+
 describe("Workboard review and acceptance gate", () => {
   it("refuses completion without a closure reason", async () => {
     const store = createStore();
@@ -177,6 +190,135 @@ describe("Workboard review and acceptance gate", () => {
     ).resolves.toMatchObject({ status: "review" });
   });
 
+  it("refuses review to done for a legacy card with no review metadata", async () => {
+    const store = createStore();
+    const card = await createCard(store, "Legacy review", { status: "review" });
+
+    await expectRejected(
+      store.move(card.id, "done", undefined, { ownerId: "mover" }),
+      "requires acceptance accepted",
+    );
+    const stored = await store.get(card.id);
+    expect(stored).toMatchObject({ status: "review" });
+    // The refused close fabricates no verdict and no review state.
+    expect(stored?.metadata?.review).toBeUndefined();
+    expect(stored?.metadata?.acceptance).toBeUndefined();
+    expect(stored?.metadata?.acceptedBy).toBeUndefined();
+    expect(stored?.metadata?.acceptedAt).toBeUndefined();
+  });
+
+  it("closes a legacy review card only after it is completed and accepted", async () => {
+    const store = createStore();
+    const card = await createCard(store, "Legacy acceptance", { status: "review" });
+
+    await expectRejected(
+      store.move(card.id, "done", undefined, { ownerId: "reviewer" }),
+      "requires acceptance accepted",
+    );
+    // Pre-upgrade card: no recorded completer, so no accept until it is completed once.
+    await expectRejected(
+      store.accept(card.id, {}, { ownerId: "reviewer" }),
+      "has no recorded completer (pre-upgrade)",
+    );
+
+    await store.update(card.id, { status: "running" });
+    await store.claim(card.id, { ownerId: "worker" });
+    await store.complete(card.id, {
+      ownerId: "worker",
+      summary: "Completed after upgrade.",
+      closureReason: "delivered",
+    });
+    await store.accept(card.id, {}, { ownerId: "reviewer" });
+    const done = await store.move(
+      card.id,
+      "done",
+      undefined,
+      { ownerId: "mover" },
+      { reason: "Checked." },
+    );
+
+    expect(done.status).toBe("done");
+    expect(done.metadata).toMatchObject({
+      acceptance: "accepted",
+      acceptedBy: "reviewer",
+      review: { required: true, status: "accepted", actor: "reviewer" },
+    });
+    // The mover neither becomes the review actor nor overwrites the verdict.
+    expect(done.metadata?.review?.reason).toBeUndefined();
+    expect(done.metadata?.comments?.at(-1)?.body).toBe("Checked.");
+  });
+
+  it("clears the acceptance verdict when review returns to running", async () => {
+    const store = createStore();
+    const card = await acceptedReviewCard(store);
+
+    const reworked = await store.move(
+      card.id,
+      "running",
+      undefined,
+      { ownerId: "reviewer" },
+      { reason: "Needs another pass." },
+    );
+    expect(reworked.metadata).toMatchObject({ review: { status: "rejected" } });
+
+    const stored = await store.get(card.id);
+    expect(stored?.status).toBe("running");
+    expect(stored?.metadata?.review).toMatchObject({ required: true, status: "rejected" });
+    expect(stored?.metadata?.acceptance).toBeUndefined();
+    expect(stored?.metadata?.acceptedBy).toBeUndefined();
+    expect(stored?.metadata?.acceptedAt).toBeUndefined();
+
+    await store.move(card.id, "review", undefined, { ownerId: "reviewer" });
+    await expectRejected(
+      store.move(card.id, "done", undefined, { ownerId: "reviewer" }),
+      "requires acceptance accepted",
+    );
+  });
+
+  it("clears the acceptance verdict when review moves to blocked", async () => {
+    const store = createStore();
+    const card = await acceptedReviewCard(store);
+
+    await store.move(
+      card.id,
+      "blocked",
+      undefined,
+      { ownerId: "reviewer" },
+      { reason: "Waiting on upstream." },
+    );
+    const stored = await store.get(card.id);
+    expect(stored?.status).toBe("blocked");
+    expect(stored?.metadata?.review).toMatchObject({ required: true, status: "pending" });
+    expect(stored?.metadata?.acceptance).toBeUndefined();
+    expect(stored?.metadata?.acceptedBy).toBeUndefined();
+    expect(stored?.metadata?.acceptedAt).toBeUndefined();
+
+    await store.move(card.id, "review", undefined, { ownerId: "reviewer" });
+    await expectRejected(
+      store.move(card.id, "done", undefined, { ownerId: "reviewer" }),
+      "requires acceptance accepted",
+    );
+  });
+
+  it("clears the acceptance verdict when review moves to todo", async () => {
+    const store = createStore();
+    const card = await acceptedReviewCard(store);
+
+    await store.move(card.id, "todo", undefined, { ownerId: "reviewer" });
+    const stored = await store.get(card.id);
+    expect(stored?.status).toBe("todo");
+    expect(stored?.metadata?.review).toMatchObject({ required: true, status: "pending" });
+    expect(stored?.metadata?.acceptance).toBeUndefined();
+    expect(stored?.metadata?.acceptedBy).toBeUndefined();
+    expect(stored?.metadata?.acceptedAt).toBeUndefined();
+
+    await store.move(card.id, "review", undefined, { ownerId: "reviewer" });
+    await expectRejected(
+      store.move(card.id, "done", undefined, { ownerId: "reviewer" }),
+      "requires acceptance accepted",
+    );
+  });
+
   it("reads legacy cards without synthesizing closure or acceptance state", async () => {
     const store = createWorkboardSqliteTestStore();
     const closed = await store.create({ title: "Legacy closed card", status: "done" });
@@ -196,8 +338,128 @@ describe("Workboard review and acceptance gate", () => {
     expect(wire).not.toContain("closureReason");
     expect(wire).not.toContain("acceptance");
 
-    // The acceptance gate is not retroactive: a pre-existing review card still closes.
-    const done = await store.move(legacyReview.id, "done", undefined, { ownerId: "reviewer" });
-    expect(done.status).toBe("done");
+    // The acceptance gate is not retroactive but not bypassable either: a legacy review card
+    // needs a real accept before it can close, and the refusal writes no verdict.
+    await expectRejected(
+      store.move(legacyReview.id, "done", undefined, { ownerId: "reviewer" }),
+      "requires acceptance accepted",
+    );
+    const stillReview = await store.get(legacyReview.id);
+    expect(stillReview?.status).toBe("review");
+    expect(stillReview?.metadata?.review).toBeUndefined();
+    expect(stillReview?.metadata?.acceptance).toBeUndefined();
+  });
+
+  it("resets a carried-over acceptance when a card enters review again", async () => {
+    const store = createStore();
+    const card = await createCard(store, "Carried verdict", { status: "running" });
+    // Legacy shape: a verdict persisted while the card sits outside review.
+    const seeded = await store.update(card.id, {
+      metadata: {
+        acceptance: "accepted",
+        acceptedBy: "ghost-reviewer",
+        acceptedAt: 1,
+        review: { required: true, status: "accepted", actor: "ghost-reviewer", at: 1 },
+      },
+    });
+    expect(seeded.metadata).toMatchObject({ acceptance: "accepted" });
+
+    const entered = await store.move(card.id, "review", undefined, { ownerId: "mover" });
+    expect(entered.metadata).toMatchObject({
+      acceptance: "pending",
+      review: { status: "pending" },
+    });
+
+    const stored = await store.get(card.id);
+    expect(stored?.metadata?.acceptedBy).toBeUndefined();
+    expect(stored?.metadata?.acceptedAt).toBeUndefined();
+
+    await expectRejected(
+      store.move(card.id, "done", undefined, { ownerId: "mover" }),
+      "requires acceptance accepted",
+    );
+  });
+
+  it("lets a reviewer who rejected a card accept it after the rework", async () => {
+    const store = createStore();
+    const card = await acceptedReviewCard(store);
+
+    // Reviewer rejects: review -> running, which also voids the verdict.
+    await store.move(
+      card.id,
+      "running",
+      undefined,
+      { ownerId: "reviewer" },
+      { reason: "Needs a fix." },
+    );
+    await store.move(card.id, "review", undefined, { ownerId: "reviewer" });
+
+    const accepted = await store.accept(card.id, {}, { ownerId: "reviewer" });
+    expect(accepted.metadata).toMatchObject({
+      acceptance: "accepted",
+      acceptedBy: "reviewer",
+      review: { completedBy: "worker", actor: "reviewer", status: "accepted" },
+    });
+  });
+
+  it("still refuses the completer after another agent has touched the review", async () => {
+    const store = createStore();
+    const card = await acceptedReviewCard(store);
+
+    await store.move(
+      card.id,
+      "running",
+      undefined,
+      { ownerId: "reviewer" },
+      { reason: "Needs a fix." },
+    );
+    await store.move(card.id, "review", undefined, { ownerId: "reviewer" });
+
+    // review.actor is now the reviewer; the completer is still recorded separately.
+    await expectRejected(
+      store.accept(card.id, {}, { ownerId: "worker" }),
+      "cannot accept its own work",
+    );
+  });
+
+  it("refuses accept for a legacy card with no recorded completer", async () => {
+    const store = createStore();
+    const card = await createCard(store, "Legacy pending", { status: "review" });
+    await store.update(card.id, {
+      metadata: { review: { required: true, status: "pending", actor: "worker", at: 1 } },
+    });
+
+    // Missing identity is not unknown identity: no actor fallback, a distinct message.
+    await expectRejected(
+      store.accept(card.id, {}, { ownerId: "worker" }),
+      "has no recorded completer (pre-upgrade)",
+    );
+  });
+
+  it("refuses the real completer on a legacy card rejected by someone else", async () => {
+    const store = createStore();
+    const card = await createCard(store, "Legacy rejected", { status: "review" });
+    // Completed by A, rejected by B: actor points at B, so an actor fallback would let A in.
+    await store.update(card.id, {
+      metadata: { review: { required: true, status: "rejected", actor: "reviewer-b", at: 1 } },
+    });
+
+    await expectRejected(
+      store.accept(card.id, {}, { ownerId: "worker-a" }),
+      "has no recorded completer (pre-upgrade)",
+    );
+
+    // Once completed again, completedBy exists and the gate decides on facts, not guesses.
+    await store.update(card.id, { status: "running" });
+    await store.claim(card.id, { ownerId: "worker-a" });
+    await store.complete(card.id, {
+      ownerId: "worker-a",
+      summary: "Completed after upgrade.",
+      closureReason: "delivered",
+    });
+    await expectRejected(
+      store.accept(card.id, {}, { ownerId: "worker-a" }),
+      "cannot accept its own work",
+    );
   });
 });

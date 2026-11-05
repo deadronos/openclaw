@@ -558,6 +558,16 @@ describe("workboard tools", () => {
     expect(moved.card).toMatchObject({ status: "done" });
   });
 
+  it("refuses review to done through the move tool without a recorded acceptance", async () => {
+    const store = createWorkboardSqliteTestStore();
+    const card = await store.create({ title: "Legacy review", status: "review" });
+
+    await expect(
+      executeTool(toolSet(store, "reviewer"), "move", { id: card.id, status: "done" }),
+    ).rejects.toThrow(/requires acceptance accepted/);
+    expect((await store.get(card.id))?.metadata?.acceptance).toBeUndefined();
+  });
+
   it("lets a reviewer comment and prove a card the worker completed into review", async () => {
     const store = createWorkboardSqliteTestStore();
     const workerTools = toolSet(store, "worker");
@@ -940,6 +950,17 @@ describe("workboard terminal status writes", () => {
         },
       });
 
+      // Closing from review needs a recorded acceptance; the claim release is what matters here.
+      // The card entered review through lifecycle sync, which records no completer, so seed one
+      // the way complete() would before accepting.
+      if (status === "done") {
+        await store.update(card.id, {
+          metadata: {
+            review: { required: true, status: "pending", completedBy: "worker", at: now },
+          },
+        });
+        await store.accept(card.id, {}, { ownerId: "reviewer" });
+      }
       await store.move(card.id, status, undefined);
 
       const moved = expectDefined(await store.get(card.id), "moved card");
