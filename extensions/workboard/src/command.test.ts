@@ -182,10 +182,10 @@ describe("handleWorkboardCommand", () => {
         throw new Error("not a chat owner");
       },
     });
-    await expect(store.get(card.id)).resolves.toMatchObject({
-      status: "review",
-      metadata: { claim: { ownerId: "worker", token: "secret-token" } },
-    });
+    const moved = await store.get(card.id);
+    expect(moved?.status).toBe("review");
+    // Entering review ends the worker lease; a surviving claim would block the reviewer.
+    expect(moved?.metadata?.claim).toBeUndefined();
   });
 
   it("rechecks owner authority after create and move preparation without gating reads", async () => {

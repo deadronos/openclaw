@@ -4,16 +4,13 @@ import type {
 } from "@openclaw/workboard-contract";
 import { resolveIntegerOption } from "openclaw/plugin-sdk/number-runtime";
 import { cardRunId, cardSessionKey, compareNotifications } from "./store-card-helpers.js";
+import { normalizeBoundedString } from "./store-coercion.js";
 import type {
   WorkboardNotificationEventsInput,
   WorkboardNotificationListOptions,
   WorkboardNotificationSubscribeInput,
 } from "./store-inputs.js";
-import {
-  normalizeBoardId,
-  normalizeBoundedString,
-  normalizeNotificationSubscription,
-} from "./store-normalizers.js";
+import { normalizeBoardId, normalizeNotificationSubscription } from "./store-normalizers.js";
 import { WorkboardWorkflowStore } from "./store-workflow.js";
 
 export class WorkboardNotificationStore extends WorkboardWorkflowStore {

@@ -21,9 +21,10 @@ import {
   isActiveDependencyTarget,
   isDependencyPromotableStatus,
   syncExecutionAttemptMetadata,
-  updateEvent,
+  updateEvents,
   appendEvent,
 } from "./store-card-helpers.js";
+import { normalizeBoundedString, normalizeTimestamp } from "./store-coercion.js";
 import { MAX_CARD_COMMENTS, MAX_CARD_WORKER_LOGS, POSITION_STEP } from "./store-constants.js";
 import type {
   WorkboardCardPatch,
@@ -40,7 +41,6 @@ import {
   appendLinkPreservingDependencies,
   metadataIsEmpty,
   normalizeBoardId,
-  normalizeBoundedString,
   normalizeExecution,
   normalizeLinkType,
   normalizeMetadata,
@@ -50,7 +50,6 @@ import {
   normalizeStatus,
   normalizeStringList,
   normalizeTemplateId,
-  normalizeTimestamp,
   normalizeTitle,
   syncExecutionSessionKey,
   trimMetadataToBudget,
@@ -571,7 +570,7 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
     );
     next.events = appendEvent(
       next,
-      options.event ?? updateEvent(existing, next),
+      options.event ? [options.event] : updateEvents(existing, next),
       options.eventAt ?? now,
     );
     if (options.enforceStatusHolds && effectivePatch.status !== undefined) {

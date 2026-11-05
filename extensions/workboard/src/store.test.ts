@@ -12,7 +12,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PersistedWorkboardCard, WorkboardCardStore } from "./persistence-types.js";
 import { workboardSqliteBackendEntrypoint } from "./sqlite-backend-entrypoint.test-support.js";
 import { MAX_CARD_METADATA_BYTES, MAX_RUN_ID_LENGTH } from "./store-constants.js";
-import { contains, expectRejected, expectStored, fakeClock } from "./store-family.test-support.js";
+import {
+  completeSkippingReview,
+  contains,
+  createCard,
+  expectRejected,
+  expectStored,
+  fakeClock,
+} from "./store-family.test-support.js";
 import { WorkboardStore } from "./store.js";
 import { createWorkboardSqliteStores } from "./test/database-config.js";
 import { codexExecution } from "./test/execution.js";
@@ -25,29 +32,6 @@ import {
 } from "./test/sqlite-store.js";
 
 const createStore = () => createWorkboardSqliteTestStore({ createStores: createKernelStores });
-
-async function completeSkippingReview(
-  store: ReturnType<typeof createStore>,
-  id: string,
-  input: Record<string, unknown> = {},
-) {
-  return await store.complete(id, {
-    ...input,
-    skipReview: true,
-    skipReviewReason:
-      typeof input.skipReviewReason === "string"
-        ? input.skipReviewReason
-        : "test fixture: small task",
-  });
-}
-
-function createCard(
-  storeFixture: WorkboardStore,
-  title: string,
-  input: Omit<Parameters<WorkboardStore["create"]>[0], "title"> = {},
-) {
-  return storeFixture.create({ title, ...input });
-}
 
 const workerModuleUrl = resolveRuntimeWorkerUrl(workboardSqliteBackendEntrypoint);
 
@@ -2121,25 +2105,20 @@ describe("WorkboardStore", () => {
     const unrelated = await createCard(store, "Unrelated");
 
     await expectRejected(
-      completeSkippingReview(store, parent.id, { createdCardIds: [unrelated.id] }, null),
+      completeSkippingReview(store, parent.id, { createdCardIds: [unrelated.id] }),
       /not linked/,
     );
     const spoofed = await createCard(store, "Spoofed", { createdByCardId: parent.id });
 
     await expectRejected(
-      completeSkippingReview(store, parent.id, { createdCardIds: [spoofed.id] }, null),
+      completeSkippingReview(store, parent.id, { createdCardIds: [spoofed.id] }),
       /not linked/,
     );
 
     const child = await createCard(store, "Child", { parents: [parent.id] });
 
     await expect(
-      completeSkippingReview(
-        store,
-        parent.id,
-        { createdCardIds: [child.id], summary: "done" },
-        null,
-      ),
+      completeSkippingReview(store, parent.id, { createdCardIds: [child.id], summary: "done" }),
     ).resolves.toMatchObject({
       status: "done",
       metadata: { automation: { createdCardIds: [child.id] } },
@@ -2932,6 +2911,7 @@ describe("Workboard dependency and scheduled promotion", () => {
       token: "token-review",
       summary: "Implementation finished.",
       proof: { status: "passed", command: "pnpm test" },
+      closureReason: "delivered",
     });
 
     expect(completed.status).toBe("review");
@@ -2954,9 +2934,13 @@ describe("Workboard dependency and scheduled promotion", () => {
       ownerId: "worker",
       token: "token-reject",
       summary: "Ready for review.",
+      closureReason: "delivered",
     });
 
-    await expectRejected(store.move(card.id, "running"), "A rejection reason is required");
+    await expectRejected(
+      store.move(card.id, "running", undefined),
+      "A rejection reason is required",
+    );
     const rejected = await store.move(
       card.id,
       "running",
@@ -2990,8 +2974,10 @@ describe("Workboard dependency and scheduled promotion", () => {
       ownerId: "worker",
       token: "token-accept",
       summary: "Published.",
+      closureReason: "delivered",
     });
 
+    await store.accept(card.id, {}, { ownerId: "reviewer" });
     const accepted = await store.move(
       card.id,
       "done",
@@ -3027,6 +3013,7 @@ describe("Workboard dependency and scheduled promotion", () => {
       summary: "Typo fixed.",
       skipReview: true,
       skipReviewReason: "One-line typo, no behaviour change.",
+      closureReason: "delivered",
     });
 
     expect(done.status).toBe("done");
@@ -3052,6 +3039,7 @@ describe("Workboard dependency and scheduled promotion", () => {
         summary: "Done.",
         skipReview: true,
         skipReviewReason: "No time for review.",
+        closureReason: "delivered",
       }),
       "Code and external-facing cards require review",
     );
@@ -3071,6 +3059,7 @@ describe("Workboard dependency and scheduled promotion", () => {
         ownerId: "worker",
         token,
         summary: `Completion ${index}`,
+        closureReason: "delivered",
       });
       statuses.push(completed.status);
     }

@@ -1,9 +1,14 @@
 import type { WorkboardCard, WorkboardReviewState } from "@openclaw/workboard-contract";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { appendComment, assertCanMutateClaimedCard } from "./store-card-helpers.js";
+import { normalizeBoundedString } from "./store-coercion.js";
 import { WorkboardEnrichmentStore } from "./store-enrichment.js";
-import type { WorkboardMutationScope, WorkboardPromoteInput } from "./store-inputs.js";
-import { clearDiagnostics, normalizeBoundedString } from "./store-normalizers.js";
+import type {
+  WorkboardAcceptInput,
+  WorkboardMutationScope,
+  WorkboardPromoteInput,
+} from "./store-inputs.js";
+import { clearDiagnostics } from "./store-normalizers.js";
 
 export class WorkboardPromoteStore extends WorkboardEnrichmentStore {
   async move(
@@ -30,6 +35,16 @@ export class WorkboardPromoteStore extends WorkboardEnrichmentStore {
           if (target === "done" && current.status === "running") {
             throw new Error(
               "This card must go through review before done. Complete it to review, or skip review explicitly for a small task.",
+            );
+          }
+          if (
+            current.status === "review" &&
+            target === "done" &&
+            current.metadata?.review &&
+            current.metadata.acceptance !== "accepted"
+          ) {
+            throw new Error(
+              "Moving a card from review to done requires acceptance accepted. Accept the review first.",
             );
           }
           if (current.status === "review" && target === "running" && !reason) {
@@ -87,6 +102,54 @@ export class WorkboardPromoteStore extends WorkboardEnrichmentStore {
       );
       return result.card;
     }, options.assertOwnerCurrent);
+  }
+
+  async accept(
+    id: string,
+    input: WorkboardAcceptInput = {},
+    scope?: WorkboardMutationScope | null,
+  ): Promise<WorkboardCard> {
+    return await this.enqueueMutation(async () => {
+      const existing = await this.requireCard(id);
+      assertCanMutateClaimedCard(existing, scope ?? undefined);
+      if (existing.status !== "review") {
+        throw new Error(`Cannot accept Workboard card in ${existing.status}; expected review.`);
+      }
+      const reviewer = normalizeOptionalString(scope?.ownerId);
+      if (!reviewer) {
+        throw new Error("Acceptance requires a reviewer identity (scope ownerId).");
+      }
+      const worker = existing.metadata?.review?.actor;
+      if (worker && worker === reviewer) {
+        throw new Error(
+          "The worker that completed this card cannot accept its own work; a separate reviewer is required.",
+        );
+      }
+      const now = Date.now();
+      const reason = normalizeBoundedString(input.reason, undefined, 1000, "acceptance reason");
+      const review: WorkboardReviewState = {
+        ...(existing.metadata?.review ?? { required: true, status: "pending", at: now }),
+        required: true,
+        status: "accepted",
+        ...(reason ? { reason } : {}),
+        actor: reviewer,
+        at: now,
+      };
+      return await this.updateCard(existing, {
+        metadata: {
+          ...existing.metadata,
+          acceptance: "accepted",
+          acceptedBy: reviewer,
+          acceptedAt: now,
+          review,
+          comments: appendComment(
+            existing.metadata?.comments,
+            reason ? `Review accepted: ${reason}` : undefined,
+            now,
+          ),
+        },
+      });
+    });
   }
 
   async promote(

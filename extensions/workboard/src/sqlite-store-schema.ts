@@ -48,6 +48,32 @@ function ensureWorkboardSchema(db: DatabaseSync): void {
       db.exec(`ALTER TABLE workboard_boards ADD COLUMN ${column} TEXT`);
     }
   }
+  const cardColumns = new Set(
+    db
+      .prepare("PRAGMA table_info(workboard_cards)")
+      .all()
+      .flatMap((row) => (typeof row.name === "string" ? [row.name] : [])),
+  );
+  for (const [column, type] of [
+    ["review_json", "TEXT"],
+    ["closure_reason", "TEXT"],
+    ["acceptance", "TEXT"],
+    ["accepted_by", "TEXT"],
+    ["accepted_at", "INTEGER"],
+  ] as const) {
+    if (!cardColumns.has(column)) {
+      db.exec(`ALTER TABLE workboard_cards ADD COLUMN ${column} ${type}`);
+    }
+  }
+  const eventColumns = new Set(
+    db
+      .prepare("PRAGMA table_info(workboard_card_events)")
+      .all()
+      .flatMap((row) => (typeof row.name === "string" ? [row.name] : [])),
+  );
+  if (!eventColumns.has("owner_id")) {
+    db.exec("ALTER TABLE workboard_card_events ADD COLUMN owner_id TEXT");
+  }
   const migrationId = `schema-${SCHEMA_VERSION}`;
   const current = db
     .prepare("SELECT 1 AS found FROM workboard_schema_migrations WHERE id = ?")

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
+import { WORKBOARD_CLOSURE_REASONS } from "@openclaw/workboard-contract";
 import type {
   WorkboardArtifact,
   WorkboardCard,
@@ -25,6 +26,7 @@ import {
   closeRunningAttempts,
   retryBudgetExhausted,
 } from "./store-card-helpers.js";
+import { normalizeBoundedString } from "./store-coercion.js";
 import {
   addWorkboardDurationMs,
   DEFAULT_CLAIM_TTL_MS,
@@ -51,7 +53,6 @@ import {
   clearDiagnostics,
   deriveChildIdempotencyKey,
   normalizeArtifact,
-  normalizeBoundedString,
   normalizeProofInput,
   normalizeStatus,
   normalizeStringList,
@@ -290,6 +291,12 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       1000,
       "skip review reason",
     );
+    const closureReason = WORKBOARD_CLOSURE_REASONS.find((value) => value === input.closureReason);
+    if (!closureReason) {
+      throw new Error(
+        `closureReason is required when completing a Workboard card. Allowed values: ${WORKBOARD_CLOSURE_REASONS.join(", ")}.`,
+      );
+    }
     if (skipReview) {
       if (!skipReviewReason) {
         throw new Error("skipReviewReason is required when skipping review.");
@@ -300,17 +307,16 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         );
       }
     }
+    const worker = normalizeOptionalString(scope?.ownerId);
     const review: WorkboardReviewState = skipReview
       ? {
           required: true,
           status: "skipped",
           reason: skipReviewReason,
-          ...(normalizeOptionalString(scope?.ownerId)
-            ? { actor: normalizeOptionalString(scope?.ownerId) }
-            : {}),
+          ...(worker ? { actor: worker } : {}),
           at: now,
         }
-      : { required: true, status: "pending", at: now };
+      : { required: true, status: "pending", ...(worker ? { actor: worker } : {}), at: now };
     const finished = finishRun(existing, skipReview ? "done" : "review", now);
     const metadata = clearDiagnostics(finished.metadata, ["missing_proof"]);
     const reviewMessage = capText(summary, 240);
@@ -332,6 +338,8 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
           ...metadata,
           automation: { ...metadata.automation, summary, createdCardIds },
           review,
+          closureReason,
+          ...(skipReview ? {} : { acceptance: "pending" as const }),
           comments: appendComment(
             appendComment(metadata.comments, summary, now),
             skipReviewReason ? `Review skipped: ${skipReviewReason}` : undefined,
@@ -577,6 +585,7 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
               createdCardIds: children.map((child) => child.id),
               skipReview: !hasReviewMandatoryLabel(parent),
               skipReviewReason: "decomposition parent",
+              closureReason: "delivered",
             },
             scope,
           )

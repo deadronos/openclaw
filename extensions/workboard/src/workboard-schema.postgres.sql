@@ -99,6 +99,7 @@ CREATE TABLE "workboard_card_events" (
   "to_status" text COLLATE "C",
   "session_key" text COLLATE "C",
   "run_id" text COLLATE "C",
+  "owner_id" text COLLATE "C",
   PRIMARY KEY ("id")
 );
 
@@ -181,6 +182,11 @@ CREATE TABLE "workboard_cards" (
   "stale_json" text COLLATE "C",
   "lifecycle_status_source_updated_at" bigint,
   "failure_count" bigint,
+  "review_json" text COLLATE "C",
+  "closure_reason" text COLLATE "C",
+  "acceptance" text COLLATE "C",
+  "accepted_by" text COLLATE "C",
+  "accepted_at" bigint,
   PRIMARY KEY ("id")
 );
 

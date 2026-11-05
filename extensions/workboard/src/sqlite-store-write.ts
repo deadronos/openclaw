@@ -161,6 +161,11 @@ export function insertCard(
     stale_json: () => jsonValue(metadata?.stale),
     lifecycle_status_source_updated_at: () => bindNull(metadata?.lifecycleStatusSourceUpdatedAt),
     failure_count: () => bindNull(metadata?.failureCount),
+    review_json: () => jsonValue(metadata?.review),
+    closure_reason: () => bindNull(metadata?.closureReason),
+    acceptance: () => bindNull(metadata?.acceptance),
+    accepted_by: () => bindNull(metadata?.acceptedBy),
+    accepted_at: () => bindNull(metadata?.acceptedAt),
   })();
 
   insertChildren(db, "workboard_card_labels", card.id, card.labels, {
@@ -176,6 +181,7 @@ export function insertCard(
     to_status: (event) => bindNull(event.toStatus),
     session_key: (event) => bindNull(event.sessionKey),
     run_id: (event) => bindNull(event.runId),
+    owner_id: (event) => bindNull(event.ownerId),
   });
   insertChildren(db, "workboard_card_attempts", card.id, metadata?.attempts, {
     id: (entry) => entry.id,

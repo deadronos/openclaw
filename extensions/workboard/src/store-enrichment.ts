@@ -8,6 +8,7 @@ import type {
 } from "@openclaw/workboard-contract";
 import type { PersistedWorkboardAttachment } from "./persistence-types.js";
 import { assertCanMutateClaimedCard, cardRunId, cardSessionKey } from "./store-card-helpers.js";
+import { normalizeBoundedString } from "./store-coercion.js";
 import {
   MAX_CARD_ARTIFACTS,
   MAX_CARD_ATTACHMENTS,
@@ -28,7 +29,6 @@ import {
   clearDiagnostics,
   normalizeArtifact,
   normalizeAttachmentInput,
-  normalizeBoundedString,
   normalizeProofInput,
   workerLogEntry,
 } from "./store-normalizers.js";

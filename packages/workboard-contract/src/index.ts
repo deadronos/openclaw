@@ -42,6 +42,7 @@ export const WORKBOARD_EVENT_KINDS = [
   "specified",
   "decomposed",
   "claimed",
+  "released",
   "heartbeat",
   "execution_updated",
   "attempt_started",
@@ -85,6 +86,14 @@ export const WORKBOARD_DIAGNOSTIC_KINDS = [
   "orphaned_session",
   "archived_but_active",
 ] as const;
+export const WORKBOARD_CLOSURE_REASONS = [
+  "delivered",
+  "rejected",
+  "cancelled",
+  "escalated",
+  "no-follow-on",
+] as const;
+export const WORKBOARD_ACCEPTANCES = ["pending", "accepted", "rejected"] as const;
 export const WORKBOARD_DIAGNOSTIC_SEVERITIES = ["warning", "error", "critical"] as const;
 export const WORKBOARD_NOTIFICATION_KINDS = ["completed", "failed", "stale"] as const;
 export const WORKBOARD_BOARD_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,79}$/;
@@ -111,6 +120,8 @@ export type WorkboardTemplateId = (typeof WORKBOARD_TEMPLATE_IDS)[number];
 export type WorkboardDiagnosticKind = (typeof WORKBOARD_DIAGNOSTIC_KINDS)[number];
 export type WorkboardDiagnosticSeverity = (typeof WORKBOARD_DIAGNOSTIC_SEVERITIES)[number];
 export type WorkboardNotificationKind = (typeof WORKBOARD_NOTIFICATION_KINDS)[number];
+export type WorkboardClosureReason = (typeof WORKBOARD_CLOSURE_REASONS)[number];
+export type WorkboardAcceptance = (typeof WORKBOARD_ACCEPTANCES)[number];
 
 export type WorkboardExecution = {
   id: string;
@@ -133,6 +144,8 @@ export type WorkboardEvent = {
   toStatus?: WorkboardStatus;
   sessionKey?: string;
   runId?: string;
+  /** Claim owner a `released` event handed the card away from. */
+  ownerId?: string;
 };
 
 export type WorkboardRunAttempt = {
@@ -398,6 +411,10 @@ export type WorkboardMetadata = {
   lifecycleStatusSourceUpdatedAt?: number;
   failureCount?: number;
   review?: WorkboardReviewState;
+  closureReason?: WorkboardClosureReason;
+  acceptance?: WorkboardAcceptance;
+  acceptedBy?: string;
+  acceptedAt?: number;
 };
 
 export type WorkboardCard = {

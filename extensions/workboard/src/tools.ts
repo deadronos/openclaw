@@ -184,6 +184,12 @@ const toolSchemas = {
         description: "Why this small task can skip review. Required with skipReview.",
       }),
     ),
+    closureReason: Type.Optional(
+      Type.String({
+        description:
+          "Required. Why the card closes: delivered, rejected, cancelled, escalated, or no-follow-on.",
+      }),
+    ),
   }),
   attachment_add: strictObject({
     id: cardIdField(),
@@ -205,6 +211,13 @@ const toolSchemas = {
     id: cardIdField(),
     token: claimTokenField(),
     reason: Type.Optional(Type.String({ description: "Blocker summary." })),
+  }),
+  accept: strictObject({
+    id: cardIdField(),
+    reason: Type.Optional(
+      Type.String({ description: "Review acceptance note. Recorded on the card." }),
+    ),
+    token: ScopedClaimTokenField,
   }),
   move: strictObject({
     id: cardIdField(),
@@ -383,6 +396,14 @@ export function createWorkboardTools(params: {
         "Complete a claimed Workboard card with a structured summary, proof, artifacts, and created-card manifest. Completion lands in review; only small or trivial tasks may skip review explicitly.",
       parameters: toolSchemas.complete,
       execute: claimedCardMutation((id, record, scope) => store.complete(id, record, scope)),
+    },
+    {
+      name: "workboard_accept",
+      label: "Workboard Accept",
+      description:
+        "Accept a Workboard card that is waiting in review so it can move to done. Must be called by a reviewer other than the agent that completed the card.",
+      parameters: toolSchemas.accept,
+      execute: scopedCardMutation((id, record, scope) => store.accept(id, record, scope)),
     },
     {
       name: "workboard_attachment_add",

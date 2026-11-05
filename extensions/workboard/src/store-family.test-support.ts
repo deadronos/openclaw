@@ -17,3 +17,27 @@ export function fakeClock() {
     [Symbol.dispose]: () => vi.useRealTimers(),
   };
 }
+
+export function createCard(
+  store: WorkboardStore,
+  title: string,
+  input: Omit<Parameters<WorkboardStore["create"]>[0], "title"> = {},
+) {
+  return store.create({ title, ...input });
+}
+
+export async function completeSkippingReview(
+  store: WorkboardStore,
+  id: string,
+  input: Record<string, unknown> = {},
+) {
+  return await store.complete(id, {
+    ...input,
+    skipReview: true,
+    skipReviewReason:
+      typeof input.skipReviewReason === "string"
+        ? input.skipReviewReason
+        : "test fixture: small task",
+    closureReason: "delivered",
+  });
+}
