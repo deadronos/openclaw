@@ -320,6 +320,28 @@ describe("Workboard dual review for high-risk cards", () => {
     );
   });
 
+  it("drops stale verdicts when a card enters review without leaving it first", async () => {
+    const store = createStore();
+    // A card that never left review still has to start its attempt clean: the entering guard is
+    // the only thing that can drop verdicts here, because the leaving branch never ran.
+    const card = await createCard(store, "Carried-in verdicts", {
+      status: "todo",
+      labels: ["code"],
+      metadata: {
+        review: {
+          required: true,
+          status: "pending",
+          completedBy: "worker",
+          at: 1_700_000_000_000,
+          verdicts: [{ reviewer: "reviewer-a", at: 1_700_000_000_000, artifact: TREE }],
+        },
+      },
+    });
+
+    const moved = await store.move(card.id, "review", undefined, { ownerId: "mover" });
+    expect(moved.metadata?.review?.verdicts).toBeUndefined();
+  });
+
   it("leaves ordinary cards on the single-verdict path", async () => {
     const store = createStore();
     const card = await completedCard(store, { title: "Ordinary card" });
