@@ -395,6 +395,13 @@ export type WorkboardReviewState = {
    * accept, reject or move — `actor` moves, this does not. Persisted inside review JSON
    * because card metadata is columnar and a separate field would need a migration. */
   completedBy?: string;
+  /** Review acceptances on this review attempt, one per reviewer per artifact. Only accepts
+   * are recorded: a rejection is not a verdict here, it is a move out of review that ends the
+   * attempt and voids these entries. High-risk cards need two distinct reviewers before the
+   * card may close. Stored in review JSON for the same reason as completedBy. `artifact` is
+   * the caller-supplied identity of what was reviewed (a tree hash for repo work) — the store
+   * compares it, never interprets it. */
+  verdicts?: Array<{ reviewer: string; at: number; artifact?: string }>;
   at: number;
 };
 

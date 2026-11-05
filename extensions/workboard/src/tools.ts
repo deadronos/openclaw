@@ -239,6 +239,12 @@ const toolSchemas = {
     reason: Type.Optional(
       Type.String({ description: "Review acceptance note. Recorded on the card." }),
     ),
+    artifact: Type.Optional(
+      Type.String({
+        description:
+          "Identity of what was reviewed, e.g. a tree hash. Required on high-risk cards; review to done refuses when the verdicts name different artifacts.",
+      }),
+    ),
     token: ScopedClaimTokenField,
   }),
   move: strictObject({
@@ -445,9 +451,16 @@ export function createWorkboardTools(params: {
       name: "workboard_accept",
       label: "Workboard Accept",
       description:
-        "Accept a Workboard card that is waiting in review so it can move to done. Must be called by a reviewer other than the agent that completed the card.",
+        'Accept a Workboard card that is waiting in review so it can move to done. Must be called by a reviewer other than the agent that completed the card. A repeated accept for an artifact you already accepted is safe: it records nothing, moves no timestamp, and reports verdict: "already-recorded".',
       parameters: toolSchemas.accept,
-      execute: scopedCardMutation((id, record, scope) => store.accept(id, record, scope)),
+      execute: async (_toolCallId, rawParams) => {
+        const { record, id, scope } = await readScopedCardToolParams(rawParams);
+        const { card, recorded } = await store.acceptWithOutcome(id, record, scope);
+        return jsonResult({
+          card: redactClaimToken(card),
+          verdict: recorded ? "recorded" : "already-recorded",
+        });
+      },
     },
     {
       name: "workboard_attachment_add",

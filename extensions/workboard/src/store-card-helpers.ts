@@ -321,6 +321,21 @@ export function updateEvents(
   return event.kind === "claimed" ? [released] : [event, released];
 }
 
+const REVIEW_MANDATORY_LABELS = new Set([
+  "code",
+  "external",
+  "external-facing",
+  "publish",
+  "release",
+  "deploy",
+  "security",
+]);
+
+/** High-risk labels that make a card require review, and two reviewer verdicts to close. */
+export function hasReviewMandatoryLabel(card: { labels: readonly string[] }): boolean {
+  return card.labels.some((label) => REVIEW_MANDATORY_LABELS.has(label.toLowerCase()));
+}
+
 export function assertCanMutateClaimedCard(
   card: WorkboardCard,
   scope: WorkboardMutationScope | undefined,
