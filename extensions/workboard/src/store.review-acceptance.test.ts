@@ -95,9 +95,12 @@ describe("Workboard review and acceptance gate", () => {
     expect(completed.status).toBe("review");
     expect(completed.metadata).toMatchObject({ closureReason: "delivered", acceptance: "pending" });
 
+    // `code` is high-risk: the card needs a second independent verdict before it may close.
+    // The silent accept adds no comment, so the append-only trail below stays one comment long.
+    await store.accept(card.id, { artifact: "tree-trial" }, { ownerId: "reviewer-2" });
     const accepted = await store.accept(
       card.id,
-      { reason: "Verified the trial card." },
+      { reason: "Verified the trial card.", artifact: "tree-trial" },
       { ownerId: "reviewer" },
     );
     expect(accepted.metadata).toMatchObject({ acceptedBy: "reviewer", acceptance: "accepted" });
@@ -118,6 +121,7 @@ describe("Workboard review and acceptance gate", () => {
       "claimed",
       "moved",
       "released",
+      "edited",
       "comment_added",
       "moved",
     ]);

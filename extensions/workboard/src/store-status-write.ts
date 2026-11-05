@@ -129,6 +129,9 @@ export function settleManualStatusTransition(params: {
     if (metadata.review?.status === "accepted") {
       metadata.review = { ...metadata.review, required: true, status: "pending" };
     }
+    if (metadata.review?.verdicts?.length) {
+      metadata.review = { ...metadata.review, verdicts: undefined };
+    }
     metadata.acceptance = undefined;
     metadata.acceptedBy = undefined;
     metadata.acceptedAt = undefined;
@@ -136,6 +139,11 @@ export function settleManualStatusTransition(params: {
   // Every review attempt starts unaccepted. A verdict carried in from earlier data must not
   // let the card close without a fresh accept on this attempt.
   if (status === "review" && existing.status !== "review") {
+    // Verdicts belong to one attempt. Entering review through move() does not rebuild the
+    // review object, so they have to be dropped here as well as on the way out.
+    if (metadata.review?.verdicts?.length) {
+      metadata.review = { ...metadata.review, verdicts: undefined };
+    }
     if (metadata.acceptance === "accepted" || metadata.review?.status === "accepted") {
       metadata.acceptance = "pending";
       metadata.acceptedBy = undefined;

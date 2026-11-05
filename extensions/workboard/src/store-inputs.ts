@@ -132,6 +132,8 @@ export type WorkboardHandoffResult = {
 };
 export type WorkboardAcceptInput = {
   reason?: unknown;
+  /** What was reviewed. Required on high-risk cards; compared, never interpreted. */
+  artifact?: unknown;
 };
 export type WorkboardBlockInput = WorkboardMutationScope & {
   reason?: unknown;

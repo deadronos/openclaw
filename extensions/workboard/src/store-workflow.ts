@@ -24,6 +24,7 @@ import {
   cardRunId,
   cardSessionKey,
   closeRunningAttempts,
+  hasReviewMandatoryLabel,
   retryBudgetExhausted,
 } from "./store-card-helpers.js";
 import { normalizeBoundedString } from "./store-coercion.js";
@@ -59,19 +60,6 @@ import {
 } from "./store-normalizers.js";
 import { WorkboardPromoteStore } from "./store-promote.js";
 import { finishRun } from "./store-status-write.js";
-
-const REVIEW_MANDATORY_LABELS = new Set([
-  "code",
-  "external",
-  "external-facing",
-  "publish",
-  "release",
-  "deploy",
-  "security",
-]);
-function hasReviewMandatoryLabel(card: WorkboardCard): boolean {
-  return card.labels.some((label) => REVIEW_MANDATORY_LABELS.has(label.toLowerCase()));
-}
 
 class WorkboardClaimRefusedError extends Error {
   constructor(message: string) {

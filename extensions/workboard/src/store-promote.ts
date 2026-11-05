@@ -1,6 +1,10 @@
 import type { WorkboardCard, WorkboardReviewState } from "@openclaw/workboard-contract";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
-import { appendComment, assertCanMutateClaimedCard } from "./store-card-helpers.js";
+import {
+  appendComment,
+  assertCanMutateClaimedCard,
+  hasReviewMandatoryLabel,
+} from "./store-card-helpers.js";
 import { normalizeBoundedString } from "./store-coercion.js";
 import { WorkboardEnrichmentStore } from "./store-enrichment.js";
 import type {
@@ -58,6 +62,46 @@ export class WorkboardPromoteStore extends WorkboardEnrichmentStore {
               "Cannot close: this card has no recorded completer (pre-upgrade). Complete it once so the reviewer identity can be established.",
             );
           }
+          // High-risk work needs two independent verdicts: one reviewer is a review, not a
+          // second pair of eyes. Distinctness is what counts, so a repeated accept by the same
+          // agent cannot satisfy this.
+          if (
+            current.status === "review" &&
+            target === "done" &&
+            hasReviewMandatoryLabel(current)
+          ) {
+            const recordedVerdicts = current.metadata?.review?.verdicts ?? [];
+            // P1 recorded one reviewer in `acceptedBy` before verdicts existed. Reading it as a
+            // first verdict keeps every card accepted before this rule from being stranded: it
+            // needs exactly one more reviewer, not a rewrite of its history.
+            const legacyReviewer = normalizeOptionalString(current.metadata?.acceptedBy);
+            const reviewers = [
+              ...new Set([
+                ...recordedVerdicts.map((verdict) => verdict.reviewer),
+                ...(legacyReviewer ? [legacyReviewer] : []),
+              ]),
+            ];
+            if (reviewers.length < 2) {
+              throw new Error(
+                `High-risk work requires two independent reviewer verdicts before done; recorded ${reviewers.length}${reviewers.length ? ` (${reviewers.join(", ")})` : ""}.`,
+              );
+            }
+            // Verdicts are bound to content: two reviewers looking at different trees did not
+            // review the same thing, and the card must not close on that. A pre-artifact verdict
+            // carries no artifact and takes no part in the comparison; report the conflicting
+            // pair (first by `at`) rather than the whole set, so the message stays readable.
+            const withArtifact = recordedVerdicts
+              .filter((verdict) => verdict.artifact)
+              .toSorted((left, right) => left.at - right.at);
+            const first = withArtifact[0];
+            const conflict = withArtifact.find((verdict) => verdict.artifact !== first?.artifact);
+            if (conflict) {
+              const detail = `${first?.reviewer}@${first?.artifact} vs ${conflict.reviewer}@${conflict.artifact}`;
+              throw new Error(
+                `High-risk work requires every verdict to name the same artifact before done; recorded ${detail}.`,
+              );
+            }
+          }
           if (current.status === "review" && target === "running" && !reason) {
             throw new Error(
               "A rejection reason is required when moving a card from review back to running.",
@@ -109,6 +153,17 @@ export class WorkboardPromoteStore extends WorkboardEnrichmentStore {
     input: WorkboardAcceptInput = {},
     scope?: WorkboardMutationScope | null,
   ): Promise<WorkboardCard> {
+    return (await this.acceptWithOutcome(id, input, scope)).card;
+  }
+
+  /** accept(), plus whether this call recorded a verdict or found one already there. A retry and
+   * a duplicate are indistinguishable at the store, so the difference has to be reported rather
+   * than refused: a client that never saw the first response must be able to retry safely. */
+  async acceptWithOutcome(
+    id: string,
+    input: WorkboardAcceptInput = {},
+    scope?: WorkboardMutationScope | null,
+  ): Promise<{ card: WorkboardCard; recorded: boolean }> {
     return await this.enqueueMutation(async () => {
       const existing = await this.requireCard(id);
       assertCanMutateClaimedCard(existing, scope ?? undefined);
@@ -140,15 +195,62 @@ export class WorkboardPromoteStore extends WorkboardEnrichmentStore {
       }
       const now = Date.now();
       const reason = normalizeBoundedString(input.reason, undefined, 1000, "acceptance reason");
+      const recorded = existing.metadata?.review?.verdicts ?? [];
+      const highRisk = hasReviewMandatoryLabel(existing);
+      const artifact = normalizeBoundedString(
+        input.artifact,
+        undefined,
+        200,
+        "acceptance artifact",
+      );
+      if (highRisk && !artifact) {
+        throw new Error(
+          "Accepting a high-risk card requires an artifact naming what was reviewed: for repository work the tree hash from `git rev-parse HEAD^{tree}`, otherwise a stable identifier your lane controls.",
+        );
+      }
+      // Uniqueness lives at the write. A card accepted before verdicts existed carries one
+      // reviewer in `acceptedBy`; that reviewer is materialised as a verdict here, once, so the
+      // record survives the next accept overwriting the pointer — and so the same agent cannot
+      // accept again under a fresh artifact.
+      const legacyReviewer = normalizeOptionalString(existing.metadata?.acceptedBy);
+      if (recorded.length === 0 && legacyReviewer === reviewer) {
+        throw new Error(
+          "This reviewer already accepted this review attempt (recorded as acceptedBy); the second verdict must come from a different agent.",
+        );
+      }
+      const priorVerdicts =
+        recorded.length === 0 && legacyReviewer
+          ? [
+              {
+                reviewer: legacyReviewer,
+                at: existing.metadata?.acceptedAt ?? now,
+              },
+            ]
+          : recorded;
+      // The idempotency key is (reviewer, artifact), not the reviewer alone. Deduping by
+      // reviewer would keep an old artifact on file after a fix: reviewer A accepts at X,
+      // findings, fix to Y, A re-accepts at Y and the entry still says X, so B's verdict at Y
+      // makes the card permanently unclosable and A cannot clear it.
+      const prior = priorVerdicts.find((verdict) => verdict.reviewer === reviewer);
+      if (prior && prior.artifact === artifact) {
+        // A retry: write nothing at all. Rewriting acceptedAt would postpone the
+        // accepted_without_closure diagnostic for as long as the client keeps retrying.
+        return { card: existing, recorded: false };
+      }
+      const verdict = { reviewer, at: now, ...(artifact ? { artifact } : {}) };
+      const verdicts = prior
+        ? priorVerdicts.map((entry) => (entry.reviewer === reviewer ? verdict : entry))
+        : [...priorVerdicts, verdict];
       const review: WorkboardReviewState = {
         ...(existing.metadata?.review ?? { required: true, status: "pending", at: now }),
         required: true,
         status: "accepted",
         ...(reason ? { reason } : {}),
         actor: reviewer,
+        verdicts,
         at: now,
       };
-      return await this.updateCard(existing, {
+      const card = await this.updateCard(existing, {
         metadata: {
           ...existing.metadata,
           acceptance: "accepted",
@@ -162,6 +264,7 @@ export class WorkboardPromoteStore extends WorkboardEnrichmentStore {
           ),
         },
       });
+      return { card, recorded: true };
     });
   }
 

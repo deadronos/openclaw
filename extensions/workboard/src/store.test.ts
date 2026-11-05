@@ -2965,10 +2965,8 @@ describe("Workboard dependency and scheduled promotion", () => {
 
   it("accepts review into done with a verdict", async () => {
     const store = createStore();
-    const card = await createCard(store, "External page", {
-      status: "running",
-      labels: ["external"],
-    });
+    // Unlabelled on purpose: high-risk labels need two verdicts (store.dual-review.test.ts).
+    const card = await createCard(store, "External page", { status: "running" });
     await store.claim(card.id, { ownerId: "worker", token: "token-accept" });
     await store.complete(card.id, {
       ownerId: "worker",
