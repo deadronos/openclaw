@@ -232,12 +232,20 @@ export class WorkboardPromoteStore extends WorkboardEnrichmentStore {
       // findings, fix to Y, A re-accepts at Y and the entry still says X, so B's verdict at Y
       // makes the card permanently unclosable and A cannot clear it.
       const prior = priorVerdicts.find((verdict) => verdict.reviewer === reviewer);
-      if (prior && prior.artifact === artifact) {
-        // A retry: write nothing at all. Rewriting acceptedAt would postpone the
+      // A re-accept that names no artifact is a retry against whatever that reviewer already
+      // judged, not a silent un-binding. Without this, `undefined === "clean:aaa"` is false, the
+      // replace branch runs, and the recorded artifact disappears while the verdict stays.
+      const effectiveArtifact = artifact ?? prior?.artifact;
+      if (prior && prior.artifact === effectiveArtifact) {
+        // Write nothing at all. Rewriting acceptedAt would postpone the
         // accepted_without_closure diagnostic for as long as the client keeps retrying.
         return { card: existing, recorded: false };
       }
-      const verdict = { reviewer, at: now, ...(artifact ? { artifact } : {}) };
+      const verdict = {
+        reviewer,
+        at: now,
+        ...(effectiveArtifact ? { artifact: effectiveArtifact } : {}),
+      };
       const verdicts = prior
         ? priorVerdicts.map((entry) => (entry.reviewer === reviewer ? verdict : entry))
         : [...priorVerdicts, verdict];
