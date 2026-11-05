@@ -16,7 +16,7 @@ import {
 } from "./store-card-helpers.js";
 import { MAX_CARD_NOTIFICATIONS } from "./store-constants.js";
 import type { WorkboardCardPatch } from "./store-inputs.js";
-import { trimMetadataToBudget } from "./store-normalizers.js";
+import { normalizeStatus, trimMetadataToBudget } from "./store-normalizers.js";
 
 export function finishRun(
   card: WorkboardCard,
@@ -90,6 +90,21 @@ export function resolveLifecycleStatusWrite(
       return undefined;
     }
   }
+  // A card entering review hands the run to a reviewer; a surviving worker lease would
+  // block the next claim. Accepted edge: todo/ready to review keeps any existing lease.
+  if (
+    existing.status === "running" &&
+    effectivePatch.status !== undefined &&
+    normalizeStatus(effectivePatch.status, existing.status) === "review"
+  ) {
+    effectivePatch = {
+      ...effectivePatch,
+      metadata: {
+        ...(isRecord(effectivePatch.metadata) ? effectivePatch.metadata : {}),
+        claim: undefined,
+      },
+    };
+  }
   return { effectivePatch, hasFreshLifecycleStatusSource };
 }
 
@@ -108,6 +123,34 @@ export function settleManualStatusTransition(params: {
   // Status patches often spread existing metadata. Only a newly supplied
   // lifecycle source is provenance; copied markers must not survive a manual transition.
   const metadata = { ...params.metadata, lifecycleStatusSourceUpdatedAt: undefined };
+  // A verdict belongs to one review attempt: leaving review for rework voids it, so the
+  // card cannot close later on a stale acceptance.
+  if (existing.status === "review" && status !== "done" && status !== "review") {
+    if (metadata.review?.status === "accepted") {
+      metadata.review = { ...metadata.review, required: true, status: "pending" };
+    }
+    metadata.acceptance = undefined;
+    metadata.acceptedBy = undefined;
+    metadata.acceptedAt = undefined;
+  }
+  // Every review attempt starts unaccepted. A verdict carried in from earlier data must not
+  // let the card close without a fresh accept on this attempt.
+  if (status === "review" && existing.status !== "review") {
+    if (metadata.acceptance === "accepted" || metadata.review?.status === "accepted") {
+      metadata.acceptance = "pending";
+      metadata.acceptedBy = undefined;
+      metadata.acceptedAt = undefined;
+      if (metadata.review?.status === "accepted") {
+        metadata.review = {
+          ...metadata.review,
+          required: true,
+          status: "pending",
+          actor: undefined,
+          reason: undefined,
+        };
+      }
+    }
+  }
   if (status !== "done" && status !== "blocked") {
     return { execution, metadata };
   }

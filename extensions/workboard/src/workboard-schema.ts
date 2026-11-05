@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export const WORKBOARD_SCHEMA_SQL = `
     CREATE TABLE IF NOT EXISTS workboard_schema_migrations (
@@ -66,7 +66,12 @@ export const WORKBOARD_SCHEMA_SQL = `
       archived_at INTEGER,
       stale_json TEXT,
       lifecycle_status_source_updated_at INTEGER,
-      failure_count INTEGER
+      failure_count INTEGER,
+      review_json TEXT,
+      closure_reason TEXT,
+      acceptance TEXT,
+      accepted_by TEXT,
+      accepted_at INTEGER
     ) STRICT;
     CREATE INDEX IF NOT EXISTS workboard_cards_board_status_idx
       ON workboard_cards(board_id, status, position);
@@ -89,7 +94,8 @@ export const WORKBOARD_SCHEMA_SQL = `
       from_status TEXT,
       to_status TEXT,
       session_key TEXT,
-      run_id TEXT
+      run_id TEXT,
+      owner_id TEXT
     ) STRICT;
     CREATE INDEX IF NOT EXISTS workboard_card_events_card_idx
       ON workboard_card_events(card_id, ordinal);

@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import {
   isValidWorkboardBoardId,
+  WORKBOARD_ACCEPTANCES,
   WORKBOARD_ATTEMPT_STATUSES,
+  WORKBOARD_CLOSURE_REASONS,
   WORKBOARD_DIAGNOSTIC_KINDS,
   WORKBOARD_DIAGNOSTIC_SEVERITIES,
   WORKBOARD_EXECUTION_MODES,
@@ -31,7 +33,6 @@ import {
   type WorkboardNotificationSubscription,
   type WorkboardPriority,
   type WorkboardProof,
-  type WorkboardReviewState,
   type WorkboardRunAttempt,
   type WorkboardStatus,
   type WorkboardTemplateId,
@@ -46,6 +47,11 @@ import {
 import { isRecord, normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
 import { definedFields } from "../record-fields.js";
+import {
+  normalizeBoundedString,
+  normalizeEnumValue,
+  normalizeTimestamp,
+} from "./store-coercion.js";
 import {
   MAX_ATTACHMENT_BYTES,
   MAX_CARD_ARTIFACTS,
@@ -66,6 +72,7 @@ import type {
   WorkboardProofInput,
   WorkboardWorkerLogInput,
 } from "./store-inputs.js";
+import { normalizeReviewState } from "./store-review-normalizer.js";
 import { isAbsoluteWorkspacePath } from "./workspace-path.js";
 
 export function normalizeBoardId(value: unknown, fallback?: string): string | undefined {
@@ -151,24 +158,6 @@ export function normalizeNotes(value: unknown): string | undefined {
     throw new Error("notes must be 4000 characters or fewer.");
   }
   return notes;
-}
-
-export function normalizeBoundedString(
-  value: unknown,
-  fallback: string | undefined,
-  maxLength: number,
-  fieldName: string,
-): string | undefined {
-  const normalized = normalizeOptionalString(value);
-  if (!normalized) {
-    return fallback;
-  }
-  if (normalized.length > maxLength) {
-    throw new Error(
-      `${fieldName} must be ${maxLength} characters or fewer (got ${normalized.length}).`,
-    );
-  }
-  return normalized;
 }
 
 export function normalizeRunId(value: unknown): string | undefined {
@@ -340,31 +329,12 @@ export function deriveChildIdempotencyKey(
   return key.length <= 160 ? key : undefined;
 }
 
-function normalizeEnumValue<T extends string, TFallback extends T | undefined>(
-  value: unknown,
-  allowed: readonly T[],
-  fallback: TFallback,
-  fieldName?: string,
-): T | TFallback {
-  if (typeof value === "string" && allowed.includes(value as T)) {
-    return value as T;
-  }
-  if (fieldName && typeof value === "string" && value.trim()) {
-    throw new Error(`${fieldName} must be one of: ${allowed.join(", ")}.`);
-  }
-  return fallback;
-}
-
 export function normalizeLinkType(value: unknown, fallback: WorkboardLinkType): WorkboardLinkType {
   return normalizeEnumValue(value, WORKBOARD_LINK_TYPES, fallback);
 }
 
 export function normalizeTemplateId(value: unknown): WorkboardTemplateId | undefined {
   return normalizeEnumValue(value, WORKBOARD_TEMPLATE_IDS, undefined);
-}
-
-export function normalizeTimestamp(value: unknown, fallback: number): number {
-  return resolveOptionalIntegerOption(value, { min: 0 }) ?? fallback;
 }
 
 function normalizeAttempt(record: Record<string, unknown>): WorkboardRunAttempt | null {
@@ -873,32 +843,18 @@ export function normalizeMetadata(
       ? normalizeTimestamp(record.lifecycleStatusSourceUpdatedAt, 0)
       : fallback.lifecycleStatusSourceUpdatedAt,
     review: normalizeReviewState(record.review) ?? fallback.review,
+    closureReason: normalizeEnumValue(
+      record.closureReason,
+      WORKBOARD_CLOSURE_REASONS,
+      fallback.closureReason,
+    ),
+    acceptance: normalizeEnumValue(record.acceptance, WORKBOARD_ACCEPTANCES, fallback.acceptance),
+    acceptedBy: normalizeBoundedString(record.acceptedBy, fallback.acceptedBy, 120, "accepted by"),
+    acceptedAt: normalizeTimestamp(record.acceptedAt, fallback.acceptedAt ?? 0) || undefined,
     failureCount:
       resolveOptionalIntegerOption(record.failureCount, { min: 0 }) ?? fallback.failureCount,
   };
   return trimMetadataToBudget(normalized, options);
-}
-
-function normalizeReviewState(value: unknown): WorkboardReviewState | undefined {
-  if (!isRecord(value)) {
-    return undefined;
-  }
-  const status = normalizeEnumValue(
-    value.status,
-    ["pending", "accepted", "rejected", "skipped"] as const,
-    "pending",
-  );
-  return {
-    required: value.required === true,
-    status,
-    ...(normalizeBoundedString(value.reason, undefined, 1000, "review reason")
-      ? { reason: normalizeBoundedString(value.reason, undefined, 1000, "review reason") }
-      : {}),
-    ...(normalizeBoundedString(value.actor, undefined, 120, "review actor")
-      ? { actor: normalizeBoundedString(value.actor, undefined, 120, "review actor") }
-      : {}),
-    at: normalizeTimestamp(value.at, Date.now()),
-  };
 }
 
 export function normalizeExecution(record: unknown): WorkboardExecution | undefined {

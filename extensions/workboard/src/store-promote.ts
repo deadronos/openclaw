@@ -1,9 +1,14 @@
 import type { WorkboardCard, WorkboardReviewState } from "@openclaw/workboard-contract";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { appendComment, assertCanMutateClaimedCard } from "./store-card-helpers.js";
+import { normalizeBoundedString } from "./store-coercion.js";
 import { WorkboardEnrichmentStore } from "./store-enrichment.js";
-import type { WorkboardMutationScope, WorkboardPromoteInput } from "./store-inputs.js";
-import { clearDiagnostics, normalizeBoundedString } from "./store-normalizers.js";
+import type {
+  WorkboardAcceptInput,
+  WorkboardMutationScope,
+  WorkboardPromoteInput,
+} from "./store-inputs.js";
+import { clearDiagnostics } from "./store-normalizers.js";
 
 export class WorkboardPromoteStore extends WorkboardEnrichmentStore {
   async move(
@@ -32,6 +37,27 @@ export class WorkboardPromoteStore extends WorkboardEnrichmentStore {
               "This card must go through review before done. Complete it to review, or skip review explicitly for a small task.",
             );
           }
+          if (
+            current.status === "review" &&
+            target === "done" &&
+            current.metadata?.acceptance !== "accepted"
+          ) {
+            throw new Error(
+              "Moving a card from review to done requires acceptance accepted. Accept the review first.",
+            );
+          }
+          // A verdict without a recorded completer can only come from pre-upgrade data. Closing on it
+          // would accept work whose author was never established, so the move is refused for the
+          // same reason accept() refuses: the identity is missing, not unknown.
+          if (
+            current.status === "review" &&
+            target === "done" &&
+            !current.metadata?.review?.completedBy
+          ) {
+            throw new Error(
+              "Cannot close: this card has no recorded completer (pre-upgrade). Complete it once so the reviewer identity can be established.",
+            );
+          }
           if (current.status === "review" && target === "running" && !reason) {
             throw new Error(
               "A rejection reason is required when moving a card from review back to running.",
@@ -48,16 +74,9 @@ export class WorkboardPromoteStore extends WorkboardEnrichmentStore {
               ...(actor ? { actor } : {}),
               at: now,
             };
-          } else if (current.status === "review" && target === "done") {
-            review = {
-              ...(current.metadata?.review ?? { required: true, status: "pending", at: now }),
-              required: true,
-              status: "accepted",
-              ...(reason ? { reason } : {}),
-              ...(actor ? { actor } : {}),
-              at: now,
-            };
           }
+          // Only accept() records the acceptance verdict; review to done leaves it untouched
+          // and keeps the move reason as a comment.
           if (!review && !reason) {
             return { status, position };
           }
@@ -68,11 +87,7 @@ export class WorkboardPromoteStore extends WorkboardEnrichmentStore {
               ...current.metadata,
               comments: appendComment(
                 current.metadata?.comments,
-                review?.status === "rejected"
-                  ? `Review rejected: ${reason}`
-                  : review?.status === "accepted" && reason
-                    ? `Review accepted: ${reason}`
-                    : reason,
+                review?.status === "rejected" ? `Review rejected: ${reason}` : reason,
                 now,
               ),
               ...(review ? { review } : {}),
@@ -87,6 +102,67 @@ export class WorkboardPromoteStore extends WorkboardEnrichmentStore {
       );
       return result.card;
     }, options.assertOwnerCurrent);
+  }
+
+  async accept(
+    id: string,
+    input: WorkboardAcceptInput = {},
+    scope?: WorkboardMutationScope | null,
+  ): Promise<WorkboardCard> {
+    return await this.enqueueMutation(async () => {
+      const existing = await this.requireCard(id);
+      assertCanMutateClaimedCard(existing, scope ?? undefined);
+      if (existing.status !== "review") {
+        throw new Error(`Cannot accept Workboard card in ${existing.status}; expected review.`);
+      }
+      const reviewer = normalizeOptionalString(scope?.ownerId);
+      if (!reviewer) {
+        throw new Error("Acceptance requires a reviewer identity (scope ownerId).");
+      }
+      // Self-accept must compare against the agent that actually completed the card.
+      // review.actor moves (accept overwrites it, a rejection overwrites it), so it can never
+      // answer "who completed this". Only review.completedBy can, and it is written once by
+      // complete().
+      //
+      // A missing completer is NOT an unknown completer. Pre-upgrade cards have no recorded
+      // identity, and guessing one from actor would hand the card back to exactly the agent the
+      // gate exists to block. So the accept is refused until the card has been completed once.
+      const completer = existing.metadata?.review?.completedBy;
+      if (!completer) {
+        throw new Error(
+          "Cannot accept: this card has no recorded completer (pre-upgrade). Complete it once so the reviewer identity can be established.",
+        );
+      }
+      if (completer === reviewer) {
+        throw new Error(
+          "The worker that completed this card cannot accept its own work; a separate reviewer is required.",
+        );
+      }
+      const now = Date.now();
+      const reason = normalizeBoundedString(input.reason, undefined, 1000, "acceptance reason");
+      const review: WorkboardReviewState = {
+        ...(existing.metadata?.review ?? { required: true, status: "pending", at: now }),
+        required: true,
+        status: "accepted",
+        ...(reason ? { reason } : {}),
+        actor: reviewer,
+        at: now,
+      };
+      return await this.updateCard(existing, {
+        metadata: {
+          ...existing.metadata,
+          acceptance: "accepted",
+          acceptedBy: reviewer,
+          acceptedAt: now,
+          review,
+          comments: appendComment(
+            existing.metadata?.comments,
+            reason ? `Review accepted: ${reason}` : undefined,
+            now,
+          ),
+        },
+      });
+    });
   }
 
   async promote(

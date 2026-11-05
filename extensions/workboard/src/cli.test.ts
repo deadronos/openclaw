@@ -129,7 +129,7 @@ describe("registerWorkboardCli", () => {
     const output = await captureCli("move", id.slice(0, 8), "--status", "review", "--json");
     const parsed = JSON.parse(output);
     expect(parsed).toMatchObject({ card: { id, status: "review" } });
-    expect(parsed.card.metadata.claim.token).toBe("[redacted]");
+    expect(parsed.card.metadata.claim).toBeUndefined();
     expect(output).not.toContain("secret-token");
     await store.archive(id, true);
     await store.create({ title: "Active card" });

@@ -28,6 +28,7 @@ import {
   shouldSkipPersistedLifecycleStatusUpdate,
   shouldSyncWorkboardLifecycleStatus,
 } from "./store-card-helpers.js";
+import { normalizeTimestamp } from "./store-coercion.js";
 import { isWorkboardClaimReclaimable, secondsToDurationMs } from "./store-constants.js";
 import type {
   WorkboardBulkInput,
@@ -37,7 +38,7 @@ import type {
   WorkboardMutationScope,
   WorkboardOwnedCardPatch,
 } from "./store-inputs.js";
-import { capText, normalizeBoardId, normalizeTimestamp } from "./store-normalizers.js";
+import { capText, normalizeBoardId } from "./store-normalizers.js";
 import { WorkboardNotificationStore } from "./store-notifications.js";
 import { readCards } from "./store-read.js";
 import { finishRun } from "./store-status-write.js";

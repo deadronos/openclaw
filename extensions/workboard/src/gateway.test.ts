@@ -472,7 +472,7 @@ describe("workboard gateway methods", () => {
     ["bulk", { patch: { priority: "urgent" } }, { cards: [{ priority: "urgent" }] }],
     [
       "complete",
-      { summary: "closed" },
+      { summary: "closed", closureReason: "delivered" },
       {
         card: {
           status: "review",
