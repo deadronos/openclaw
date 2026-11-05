@@ -320,6 +320,54 @@ describe("Workboard dual review for high-risk cards", () => {
     );
   });
 
+  it("keeps the recorded artifact when a re-accept names none", async () => {
+    const store = createStore();
+    // Ordinary cards have no artifact requirement, so this is the only path where a re-accept
+    // can arrive without one. It must read as a retry, not as a silent un-binding.
+    const card = await completedCard(store, { title: "Ordinary re-accept" });
+
+    const first = await store.acceptWithOutcome(
+      card.id,
+      { artifact: "clean:aaa" },
+      { ownerId: "reviewer-a" },
+    );
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 5);
+    });
+    const retry = await store.acceptWithOutcome(card.id, {}, { ownerId: "reviewer-a" });
+
+    expect(retry.recorded).toBe(false);
+    const verdicts = retry.card.metadata?.review?.verdicts ?? [];
+    expect(verdicts).toHaveLength(1);
+    expect(verdicts[0]?.artifact).toBe("clean:aaa");
+    expect(verdicts[0]?.at).toBe(first.card.metadata?.review?.verdicts?.[0]?.at);
+  });
+
+  it("still replaces the entry when a re-accept names a different artifact", async () => {
+    const store = createStore();
+    const card = await completedCard(store, { title: "Ordinary re-review" });
+
+    const first = await store.acceptWithOutcome(
+      card.id,
+      { artifact: "clean:aaa" },
+      { ownerId: "reviewer-a" },
+    );
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 5);
+    });
+    const replaced = await store.acceptWithOutcome(
+      card.id,
+      { artifact: "clean:bbb" },
+      { ownerId: "reviewer-a" },
+    );
+
+    expect(replaced.recorded).toBe(true);
+    const verdicts = replaced.card.metadata?.review?.verdicts ?? [];
+    expect(verdicts).toHaveLength(1);
+    expect(verdicts[0]?.artifact).toBe("clean:bbb");
+    expect(verdicts[0]?.at).toBeGreaterThan(first.card.metadata?.review?.verdicts?.[0]?.at ?? 0);
+  });
+
   it("leaves ordinary cards on the single-verdict path", async () => {
     const store = createStore();
     const card = await completedCard(store, { title: "Ordinary card" });
