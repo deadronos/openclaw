@@ -122,6 +122,14 @@ export type WorkboardCompleteInput = WorkboardMutationScope & {
   skipReviewReason?: unknown;
   closureReason?: unknown;
 };
+export type WorkboardHandoffInput = WorkboardMutationScope & {
+  toAgent?: unknown;
+  note?: unknown;
+};
+export type WorkboardHandoffResult = {
+  source: WorkboardCard;
+  destination: WorkboardCard;
+};
 export type WorkboardAcceptInput = {
   reason?: unknown;
 };

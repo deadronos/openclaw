@@ -43,6 +43,7 @@ export const WORKBOARD_EVENT_KINDS = [
   "decomposed",
   "claimed",
   "released",
+  "handoff",
   "heartbeat",
   "execution_updated",
   "attempt_started",
@@ -88,6 +89,7 @@ export const WORKBOARD_DIAGNOSTIC_KINDS = [
 ] as const;
 export const WORKBOARD_CLOSURE_REASONS = [
   "delivered",
+  "handed_off_to",
   "rejected",
   "cancelled",
   "escalated",

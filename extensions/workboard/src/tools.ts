@@ -1,4 +1,5 @@
 import { WORKBOARD_STATUSES, type WorkboardCard } from "@openclaw/workboard-contract";
+import { listAgentIds } from "openclaw/plugin-sdk/agent-runtime";
 import { jsonResult, readStringParam } from "openclaw/plugin-sdk/core";
 import { resolveIntegerOption } from "openclaw/plugin-sdk/number-runtime";
 import type { AnyAgentTool, OpenClawPluginToolContext } from "openclaw/plugin-sdk/plugin-entry";
@@ -17,6 +18,19 @@ import { createWorkboardOrchestrationTools } from "./tools-orchestration.js";
 
 function contextOwner(ctx: OpenClawPluginToolContext | undefined): string {
   return ctx?.agentId || ctx?.sessionKey || ctx?.sessionId || "agent";
+}
+
+// Configured agent ids for handoff validation, resolved through the roster helper the rest of
+// the codebase uses (published roster facts, legacy pre-roster configs, implicit "main").
+// Undefined means "no usable roster here" (tests, embedded use) — an empty list would refuse
+// every handoff, which is worse than the typo hole it is meant to close.
+function configuredAgentIds(ctx: OpenClawPluginToolContext | undefined): string[] | undefined {
+  const config = ctx?.getRuntimeConfig?.() ?? ctx?.runtimeConfig ?? ctx?.config;
+  if (!config) {
+    return undefined;
+  }
+  const ids = listAgentIds(config).toSorted();
+  return ids.length > 0 ? ids : undefined;
 }
 
 function summarizeCard(card: WorkboardCard) {
@@ -187,9 +201,17 @@ const toolSchemas = {
     closureReason: Type.Optional(
       Type.String({
         description:
-          "Required. Why the card closes: delivered, rejected, cancelled, escalated, or no-follow-on.",
+          "Required. Why the card closes: delivered, handed_off_to, rejected, cancelled, escalated, or no-follow-on.",
       }),
     ),
+  }),
+  handoff: strictObject({
+    id: cardIdField(),
+    toAgent: Type.String({ description: "Agent id that receives the card." }),
+    note: Type.Optional(
+      Type.String({ description: "Why this card is being handed off, recorded on both cards." }),
+    ),
+    token: ScopedClaimTokenField,
   }),
   attachment_add: strictObject({
     id: cardIdField(),
@@ -396,6 +418,28 @@ export function createWorkboardTools(params: {
         "Complete a claimed Workboard card with a structured summary, proof, artifacts, and created-card manifest. Completion lands in review; only small or trivial tasks may skip review explicitly.",
       parameters: toolSchemas.complete,
       execute: claimedCardMutation((id, record, scope) => store.complete(id, record, scope)),
+    },
+    {
+      name: "workboard_handoff",
+      label: "Workboard Handoff",
+      description:
+        "Hand a claimed Workboard card to another agent. A new ready card for that agent inherits the title, notes, and labels; the source closes as handed_off_to with the review skip recorded on the card.",
+      parameters: toolSchemas.handoff,
+      execute: async (_toolCallId, rawParams) => {
+        const { record, id, scope } = await readScopedCardToolParams(rawParams);
+        const toAgent = typeof record.toAgent === "string" ? record.toAgent.trim() : "";
+        const known = configuredAgentIds(params.context);
+        if (known && !known.includes(toAgent)) {
+          throw new Error(
+            `Unknown agent "${toAgent}" for workboard_handoff. Configured agents: ${known.join(", ")}.`,
+          );
+        }
+        const { source, destination } = await store.handoff(id, record, scope);
+        return jsonResult({
+          card: redactClaimToken(source),
+          destination: redactClaimToken(destination),
+        });
+      },
     },
     {
       name: "workboard_accept",

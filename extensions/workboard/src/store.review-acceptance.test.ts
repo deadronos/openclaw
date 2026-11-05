@@ -31,7 +31,7 @@ describe("Workboard review and acceptance gate", () => {
         token: "token-closure",
         summary: "Done.",
       }),
-      /closureReason is required.*delivered, rejected, cancelled, escalated, no-follow-on/,
+      /closureReason is required.*delivered, handed_off_to, rejected, cancelled, escalated, no-follow-on/,
     );
     await expectStored(store, card.id, { status: "running" });
   });
