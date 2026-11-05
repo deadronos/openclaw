@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { getAgentToolAssistantTurnId } from "../../packages/agent-core/src/tool-execution-context.js";
+import type { ChannelPlugin } from "../channels/plugins/types.public.js";
 import { getRuntimeConfigSnapshot, selectLiveRuntimeConfig } from "../config/config.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import {
@@ -18,7 +19,7 @@ import {
 } from "../infra/node-commands.js";
 import { resolveAgentScopedOutboundMediaAccess } from "../media/read-capability.js";
 import { resolveProviderAuthScope } from "../plugins/provider-auth-scope.js";
-import { getActivePluginRegistry, getActivePluginRegistryVersion } from "../plugins/runtime.js";
+import { getActivePluginRegistry } from "../plugins/runtime.js";
 import {
   getInProcessGatewayRequestContext,
   getPluginRuntimeGatewayRequestScope,
@@ -58,6 +59,7 @@ import {
   resolveOpenClawPluginToolInputs,
   type OpenClawPluginToolOptions,
 } from "./openclaw-tools.plugin-context.js";
+import { PluginDeliveryCapabilityError } from "./plugin-delivery-capability-error.js";
 import { preparePluginToolExecutionCapabilities } from "./plugin-tool-execution.js";
 import type { PreparedModelRuntimeSnapshot } from "./prepared-model-runtime.types.js";
 import type { AgentToolResult } from "./runtime/index.js";
@@ -127,6 +129,23 @@ const loadMessageActionRunner = createLazyRuntimeModule(
   () => import("../infra/outbound/message-action-runner.js"),
 );
 
+/** Gateway-owned delivery stays excluded when a replacement registry takes over the route. */
+function hasProcessLocalTransport({
+  message,
+  outbound,
+}: Pick<ChannelPlugin, "message" | "outbound">): boolean {
+  return (
+    outbound?.deliveryMode !== "gateway" &&
+    Boolean(
+      message?.send?.text ||
+      outbound?.sendText ||
+      outbound?.sendMedia ||
+      outbound?.sendPayload ||
+      outbound?.sendFormattedText,
+    )
+  );
+}
+
 function createPluginToolDelivery(params: {
   options: ResolveOpenClawPluginToolsOptions | undefined;
   context: OpenClawPluginToolContext;
@@ -145,7 +164,6 @@ function createPluginToolDelivery(params: {
   );
   const token = params.options?.messageActionTurnCapability;
   const activeRegistry = getActivePluginRegistry();
-  const activeRegistryVersion = getActivePluginRegistryVersion();
   if (
     !deliveryContext?.channel ||
     !deliveryContext.to ||
@@ -167,8 +185,13 @@ function createPluginToolDelivery(params: {
     sessionKey: policySessionKey,
     sessionId,
   };
-  const messageActionAuthorization = resolveMessageActionTurnAuthorization(turnIdentity);
-  if (messageActionAuthorization?.scheduled || messageActionAuthorization?.deliveryAttempt) {
+  const bindingAuthorization = resolveMessageActionTurnAuthorization(turnIdentity);
+  // Delivery is optional for a turn, so a capability that is already unusable
+  // withholds it here; only one lost after this binding fails the send.
+  if (!bindingAuthorization) {
+    return undefined;
+  }
+  if (bindingAuthorization.scheduled || bindingAuthorization.deliveryAttempt) {
     // Cron capabilities are consumed by individual message actions. They do not
     // delegate the source conversation's plugin delivery capability.
     return undefined;
@@ -188,20 +211,27 @@ function createPluginToolDelivery(params: {
     threadId: deliveryContext.threadId,
   };
 
-  const resolveAuthorization = () => {
-    if (
-      getActivePluginRegistry() !== activeRegistry ||
-      getActivePluginRegistryVersion() !== activeRegistryVersion
-    ) {
-      throw new Error("plugin delivery capability is no longer active");
+  // The registry version is an epoch for plugin-callback authority, not a property
+  // of this route: re-activating the same registry leaves its transport in place.
+  const resolveDeliveryRegistry = () => {
+    const registry = getActivePluginRegistry();
+    if (registry === activeRegistry) {
+      return registry;
     }
+    const plugin = registry?.channels.find((entry) => entry.plugin.id === route.channel)?.plugin;
+    if (!registry || !plugin || !hasProcessLocalTransport(plugin)) {
+      throw new PluginDeliveryCapabilityError(route.channel);
+    }
+    return registry;
+  };
+  const resolveAuthorization = () => {
+    resolveDeliveryRegistry();
     const authorization = resolveMessageActionTurnCapability(turnIdentity);
     if (!authorization) {
-      throw new Error("plugin delivery capability is no longer active");
+      throw new PluginDeliveryCapabilityError();
     }
     return authorization;
   };
-  const bindingAuthorization = resolveAuthorization();
   const bindingConfig = params.bindingConfig;
   if (!bindingConfig) {
     return undefined;
@@ -227,7 +257,7 @@ function createPluginToolDelivery(params: {
       if (!cfg) {
         throw new Error("plugin delivery requires an active runtime config");
       }
-      await withPluginRuntimeRegistryScope(activeRegistry, () =>
+      await withPluginRuntimeRegistryScope(resolveDeliveryRegistry(), () =>
         runMessageAction({
           cfg,
           action: "send",

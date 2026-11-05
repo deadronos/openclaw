@@ -1,5 +1,6 @@
 import { CliExecutionAuthProfileError } from "../agents/cli-execution-auth.js";
 import type { RunEmbeddedAgentInternalParams } from "../agents/embedded-agent-runner/run/internal-params.js";
+import { ModelFallbackCandidateRefusal } from "../agents/model-fallback-candidate-refusal.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import {
   type CronInferenceBinding,
@@ -52,7 +53,7 @@ function incompatibleCandidateError(params: {
         : params.cliExecution
           ? "The selected runtime uses a CLI login that cannot use this job's stored account. "
           : "";
-  return new Error(
+  return new ModelFallbackCandidateRefusal(
     `Automation candidate ${params.provider}${params.runtime ? ` on runtime ${params.runtime}` : ""} is incompatible with its recorded inference account and route (${describeCronInferenceBinding(binding)}). ` +
       reason +
       "Select a model compatible with the recorded account, or explicitly select an account with " +

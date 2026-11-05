@@ -86,6 +86,19 @@ export function enableSessionSuspensionWritesForGatewayStart(): void {
   suspensionState.cleanupActive = false;
 }
 
+export type DeferredSessionSuspensionState = {
+  pending?: SessionSuspensionParams;
+};
+
+export function flushDeferredSessionSuspension(state: DeferredSessionSuspensionState): void {
+  const pending = state.pending;
+  if (!pending) {
+    return;
+  }
+  state.pending = undefined;
+  void suspendSession(pending);
+}
+
 export async function suspendSession(params: SessionSuspensionParams) {
   const state = suspensionState;
   const run = state.suspensionWriteChain

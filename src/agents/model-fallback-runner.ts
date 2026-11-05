@@ -58,6 +58,7 @@ import {
   shouldDiscardDeferredSessionSuspension,
   throwFallbackFailureSummary,
 } from "./model-fallback-attempt.js";
+import { shouldSkipRefusedFallbackCandidate } from "./model-fallback-candidate-refusal.js";
 import {
   preferContextFitFallbackCandidates,
   resolveModelCandidateChain,
@@ -83,9 +84,10 @@ import {
 } from "./model-fallback.types.js";
 import type { ModelManifestNormalizationContext } from "./model-ref-shared.js";
 import {
+  flushDeferredSessionSuspension,
   resolveSessionSuspensionReason,
   suspendSession,
-  type SessionSuspensionParams,
+  type DeferredSessionSuspensionState,
 } from "./session-suspension.js";
 
 const log = createSubsystemLogger("model-fallback");
@@ -122,19 +124,6 @@ type RunWithModelFallbackParams<T> = ModelFallbackRuntimeContext & {
   abortSignal?: AbortSignal;
   operatorAuthority?: AdmittedRunOperatorAuthority;
 } & ModelManifestNormalizationContext;
-
-type DeferredSessionSuspensionState = {
-  pending?: SessionSuspensionParams;
-};
-
-function flushDeferredSessionSuspension(state: DeferredSessionSuspensionState): void {
-  const pending = state.pending;
-  if (!pending) {
-    return;
-  }
-  state.pending = undefined;
-  void suspendSession(pending);
-}
 
 export async function runWithModelFallback<T>(
   params: RunWithModelFallbackParams<T>,
@@ -547,6 +536,13 @@ async function runWithModelFallbackInternal<T>(
       return attemptRun.success;
     }
     const err = attemptRun.error;
+    // A refused candidate ran nothing, so the failure that led here stays the report.
+    if (
+      shouldSkipRefusedFallbackCandidate({ error: err, lastError, attemptCount: attempts.length })
+    ) {
+      await observeCandidateDecision("skip_candidate", { error: formatErrorMessage(err) });
+      continue;
+    }
     if (isAgentHarnessPreflightError(err)) {
       const nextEligibleIndex = resolveHarnessPreflightFallbackIndex({
         error: err,

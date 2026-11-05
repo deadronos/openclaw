@@ -243,8 +243,6 @@ export async function runAgentFallbackCandidates(params: AgentFallbackCycleParam
         params.state.maintenanceAuthProfile = undefined;
         params.state.compactionRequestBudget = undefined;
         invalidateTurnCompactionContext(params.state.compaction);
-        params.state.attemptedRuntimeProvider = provider;
-        params.state.attemptedRuntimeModel = model;
         const runtime = params.timing.measureSync("fallback_resolve_runtime", () =>
           resolveCandidateRuntime(provider, model, runOptions.agentHarnessRuntimeOverride),
         );
@@ -275,6 +273,9 @@ export async function runAgentFallbackCandidates(params: AgentFallbackCycleParam
           runtime.useCliExecution,
           candidateAgentRuntime,
         );
+        // A refused candidate never ran, so failures stay attributed to the last model that did.
+        params.state.attemptedRuntimeProvider = provider;
+        params.state.attemptedRuntimeModel = model;
         assertCronRuntimeAuthorityCandidate({
           authority: candidateRun.scheduledAutomation?.job.runtimeAuthority,
           candidateRuntime: candidateAgentRuntime,

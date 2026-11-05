@@ -24,6 +24,7 @@ import { getFailoverErrorCode } from "./failover/error.js";
 import { findLocalWorkerTaskFailure } from "./failover/local-preparation-error.js";
 import type { FailoverReason } from "./failover/signal.js";
 import { AgentHarnessPreflightError } from "./harness/errors.js";
+import { PluginDeliveryCapabilityError } from "./plugin-delivery-capability-error.js";
 import { PreparedModelRuntimePublicationSupersededError } from "./prepared-model-runtime.errors.js";
 
 // These fixtures exercise core classification without cold-loading provider runtimes.
@@ -606,6 +607,16 @@ describe("buildFailoverRemediationHint", () => {
 });
 
 describe("isNonProviderRuntimeCoordinationError", () => {
+  it("stops fallback for a delivery capability failure, including through the lane wrapper", () => {
+    const failure = new PluginDeliveryCapabilityError();
+    const wrapped = new Error("lane task error", { cause: failure });
+    for (const error of [failure, wrapped]) {
+      expect(resolveModelFallbackError(error)).toEqual({ kind: "coordination", error });
+      expect(resolveFailoverReasonFromError(error)).toBeNull();
+    }
+    expect(failure.message).toBe("plugin delivery capability is no longer active");
+  });
+
   it("keeps native PostgreSQL cancellation out of provider fallback after actor projection", () => {
     const native = decodePostgresError({
       name: "error",

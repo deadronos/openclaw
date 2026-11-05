@@ -312,9 +312,9 @@ describe("createOpenClawTools browser plugin integration", () => {
       setActivePluginRegistry(createEmptyPluginRegistry());
       await expect(replacementDelivery.send({ text: "stale registry" })).rejects.toThrow(inactive);
       setActivePluginRegistry(activeRegistry);
-      await expect(replacementDelivery.send({ text: "reactivated registry" })).rejects.toThrow(
-        inactive,
-      );
+      await expect(
+        replacementDelivery.send({ text: "reactivated registry" }),
+      ).resolves.toBeUndefined();
       expect(platformSendMedia).toHaveBeenCalledOnce();
       expect(providerNativeSend).not.toHaveBeenCalled();
     } finally {
@@ -326,6 +326,90 @@ describe("createOpenClawTools browser plugin integration", () => {
   it("does not expose plugin delivery without a host turn capability", () => {
     setActivePluginRegistry(createEmptyPluginRegistry());
     expect(resolveTools({ ...deliveryOptions, config: {} }).context.delivery).toBeUndefined();
+  });
+
+  it.each(["revoked", "mismatched"] as const)(
+    "builds a scheduled turn without delivery when its capability is %s",
+    (kind) => {
+      installChannel(telegramPlugin(), ["work"]);
+      const token = mintTurn({
+        scheduled: { policy: { version: 1, mode: "trusted" }, assertCurrent: () => {} },
+      });
+      if (kind === "revoked") {
+        revokeMessageActionTurnCapability(token);
+      }
+      const { context } = resolveTools({
+        ...deliveryOptions,
+        ...(kind === "mismatched" ? { runId: "another-run" } : {}),
+        config: {},
+        messageActionTurnCapability: token,
+      });
+      // The route is present, so only the unusable capability withholds delivery.
+      expect(context.deliveryContext).toMatchObject({ channel: "telegram", to: "123" });
+      expect(context.delivery).toBeUndefined();
+    },
+  );
+
+  describe("registry changes after binding", () => {
+    const installTransport = (send: ChannelOutboundAdapter["sendText"]) =>
+      installChannel(
+        {
+          ...telegramPlugin({ sendText: send }),
+          messaging: {
+            normalizeTarget: (raw) => raw,
+            targetResolver: { looksLikeId: () => true, hint: "<chat-id>" },
+          },
+        },
+        ["work"],
+      );
+    const bindDelivery = (registrySend: ChannelOutboundAdapter["sendText"]) => {
+      const registry = installTransport(registrySend);
+      const { context } = resolveTools({
+        ...deliveryOptions,
+        config: { channels: { telegram: { enabled: true } }, plugins: { allow: ["telegram"] } },
+        messageActionTurnCapability: mintTurn(),
+      });
+      return { registry, delivery: expectDefined(context.delivery, "expected delivery") };
+    };
+    const sendText = () => vi.fn(async () => ({ channel: "telegram", messageId: "sent" }));
+
+    it("delivers when the same registry only bumps its version", async () => {
+      const bound = sendText();
+      const { registry, delivery } = bindDelivery(bound);
+      setActivePluginRegistry(registry);
+      await delivery.send({ text: "still bound" });
+      expect(bound).toHaveBeenCalledOnce();
+    });
+
+    it("delivers through the current registry when it still has the channel", async () => {
+      const stale = sendText();
+      const current = sendText();
+      const { delivery } = bindDelivery(stale);
+      installTransport(current);
+      await delivery.send({ text: "current transport" });
+      expect(current).toHaveBeenCalledOnce();
+      expect(stale).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["no transport", () => createOutboundTestPlugin({ id: "telegram", outbound: {} as never })],
+      [
+        "gateway-owned delivery",
+        () =>
+          createOutboundTestPlugin({
+            id: "telegram",
+            outbound: { deliveryMode: "gateway", sendText: async () => ({}) as never },
+          }),
+      ],
+    ])("fails closed when the current registry offers %s", async (_label, plugin) => {
+      const stale = sendText();
+      const { delivery } = bindDelivery(stale);
+      installChannel(plugin());
+      await expect(delivery.send({ text: "unusable" })).rejects.toThrow(
+        "plugin delivery capability is no longer active",
+      );
+      expect(stale).not.toHaveBeenCalled();
+    });
   });
 
   it("does not expose CLI message-only authority to plugin delivery", async () => {

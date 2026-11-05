@@ -38,6 +38,7 @@ import {
   isAgentHarnessPreflightError,
 } from "./harness/errors.js";
 import { isRecordedModelFallbackStop } from "./model-fallback-stop.js";
+import { PluginDeliveryCapabilityError } from "./plugin-delivery-capability-error.js";
 import { PreparedModelRuntimeOwnerNotPublishedError } from "./prepared-model-runtime.errors.js";
 import {
   isSessionPlacementSettlementClosedError,
@@ -312,6 +313,7 @@ function hasRuntimeCoordinationFailure(err: unknown): boolean {
   }
   return collectErrorGraphCandidates(err, resolveNestedErrors).some(
     (candidate) =>
+      candidate instanceof PluginDeliveryCapabilityError ||
       isSessionWorkStartInvalidatedError(candidate) ||
       RUNTIME_COORDINATION_ERROR_NAMES.has(readErrorName(candidate)) ||
       resolveExecutionApprovalFailureMessage(readDirectErrorMessage(candidate)) !== undefined,
