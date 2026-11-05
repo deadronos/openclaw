@@ -462,4 +462,26 @@ describe("Workboard review and acceptance gate", () => {
       "cannot accept its own work",
     );
   });
+
+  it("refuses to close a pre-upgrade card that only carries an old accepted verdict", async () => {
+    const store = createStore();
+    const card = await createCard(store, "Stale verdict", { status: "review" });
+    // Pre-upgrade shape: a verdict with no recorded completer behind it.
+    await store.update(card.id, {
+      metadata: {
+        acceptance: "accepted",
+        acceptedBy: "ghost-reviewer",
+        acceptedAt: 1,
+        review: { required: true, status: "accepted", actor: "ghost-reviewer", at: 1 },
+      },
+    });
+
+    await expectRejected(
+      store.move(card.id, "done", undefined, { ownerId: "mover" }),
+      "has no recorded completer (pre-upgrade)",
+    );
+    const stored = await store.get(card.id);
+    expect(stored?.status).toBe("review");
+    expect(stored?.metadata?.acceptance).toBe("accepted");
+  });
 });
