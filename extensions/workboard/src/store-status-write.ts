@@ -16,7 +16,7 @@ import {
 } from "./store-card-helpers.js";
 import { MAX_CARD_NOTIFICATIONS } from "./store-constants.js";
 import type { WorkboardCardPatch } from "./store-inputs.js";
-import { trimMetadataToBudget } from "./store-normalizers.js";
+import { normalizeStatus, trimMetadataToBudget } from "./store-normalizers.js";
 
 export function finishRun(
   card: WorkboardCard,
@@ -89,6 +89,21 @@ export function resolveLifecycleStatusWrite(
     if (!hasSemanticPatch && effectivePatch.metadata === undefined) {
       return undefined;
     }
+  }
+  // A card entering review hands the run to a reviewer; a surviving worker lease would
+  // block the next claim. Accepted edge: todo/ready to review keeps any existing lease.
+  if (
+    existing.status === "running" &&
+    effectivePatch.status !== undefined &&
+    normalizeStatus(effectivePatch.status, existing.status) === "review"
+  ) {
+    effectivePatch = {
+      ...effectivePatch,
+      metadata: {
+        ...(isRecord(effectivePatch.metadata) ? effectivePatch.metadata : {}),
+        claim: undefined,
+      },
+    };
   }
   return { effectivePatch, hasFreshLifecycleStatusSource };
 }

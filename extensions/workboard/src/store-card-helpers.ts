@@ -13,6 +13,7 @@ import {
 } from "@openclaw/workboard-contract";
 import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 import { isRecord, normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { normalizeTimestamp } from "./store-coercion.js";
 import {
   BLOCKED_TOO_LONG_MS,
   MAX_CARD_ATTEMPTS,
@@ -24,7 +25,7 @@ import {
   RUNNING_HEARTBEAT_STALE_MS,
 } from "./store-constants.js";
 import type { WorkboardMutationScope } from "./store-inputs.js";
-import { capText, normalizeTimestamp, removeUndefinedMetadataFields } from "./store-normalizers.js";
+import { capText, removeUndefinedMetadataFields } from "./store-normalizers.js";
 
 export function compareCards(left: WorkboardCard, right: WorkboardCard): number {
   if (left.status !== right.status) {
@@ -113,16 +114,12 @@ export function syncExecutionAttemptMetadata(
 
 export function appendEvent(
   card: WorkboardCard,
-  event: Omit<WorkboardEvent, "id" | "at">,
+  events: readonly Omit<WorkboardEvent, "id" | "at">[],
   at = Date.now(),
 ): WorkboardEvent[] {
   return [
     ...(card.events ?? []),
-    {
-      id: randomUUID(),
-      at,
-      ...event,
-    },
+    ...events.map((event) => ({ id: randomUUID(), at, ...event })),
   ].slice(-MAX_CARD_EVENTS);
 }
 
@@ -307,6 +304,21 @@ export function updateEvent(
     return { kind: "stale" };
   }
   return { kind: "edited" };
+}
+
+/** One update can both change status and end a claim; a release is its own fact. */
+export function updateEvents(
+  existing: WorkboardCard,
+  next: WorkboardCard,
+): Array<Omit<WorkboardEvent, "id" | "at">> {
+  const event = updateEvent(existing, next);
+  const claim = existing.metadata?.claim;
+  if (!claim || next.metadata?.claim) {
+    return [event];
+  }
+  const released = { kind: "released" as const, ownerId: claim.ownerId };
+  // A pure release replaces the token-change event that updateEvent would report as a capture.
+  return event.kind === "claimed" ? [released] : [event, released];
 }
 
 export function assertCanMutateClaimedCard(

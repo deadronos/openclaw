@@ -450,6 +450,7 @@ describe("workboard tools", () => {
       executeTool(tools, "complete", {
         id: parent.id,
         summary: "Too early.",
+        closureReason: "delivered",
       }),
     ).rejects.toThrow(/claimed/);
     await expect(
@@ -509,6 +510,7 @@ describe("workboard tools", () => {
       proofId: pendingProof.proofId,
       skipReview: true,
       skipReviewReason: "test fixture: small task",
+      closureReason: "delivered",
     });
     expect(completed.card).toMatchObject({
       status: "done",
@@ -517,6 +519,134 @@ describe("workboard tools", () => {
 
     const dispatch = await runTool(tools, "dispatch", {});
     expect(dispatch.promoted).toEqual([expect.objectContaining({ id: child.id, status: "ready" })]);
+  });
+
+  it("refuses complete without a closure reason", async () => {
+    const store = createWorkboardSqliteTestStore();
+    const tools = toolSet(store);
+    const card = await store.create({ title: "Needs a closure reason", status: "running" });
+    const token = (await runTool(tools, "claim", { id: card.id })).token as string;
+
+    await expect(
+      executeTool(tools, "complete", { id: card.id, token, summary: "Done." }),
+    ).rejects.toThrow(/closureReason is required/);
+    expect((await store.get(card.id))?.status).toBe("running");
+  });
+
+  it("accepts reviewed work as a reviewer and records the reviewer", async () => {
+    const store = createWorkboardSqliteTestStore();
+    const workerTools = toolSet(store, "worker");
+    const card = await store.create({ title: "Reviewable", status: "running" });
+    const token = (await runTool(workerTools, "claim", { id: card.id })).token as string;
+    const completed = await runTool(workerTools, "complete", {
+      id: card.id,
+      token,
+      summary: "Ready for review.",
+      closureReason: "delivered",
+    });
+    expect(completed.card).toMatchObject({ status: "review" });
+
+    const reviewerTools = toolSet(store, "reviewer");
+    const accepted = await runTool(reviewerTools, "accept", {
+      id: card.id,
+      reason: "Checked the delivered work.",
+    });
+    expect(accepted.card).toMatchObject({
+      metadata: { acceptance: "accepted", acceptedBy: "reviewer" },
+    });
+    const moved = await runTool(reviewerTools, "move", { id: card.id, status: "done" });
+    expect(moved.card).toMatchObject({ status: "done" });
+  });
+
+  it("lets a reviewer comment and prove a card the worker completed into review", async () => {
+    const store = createWorkboardSqliteTestStore();
+    const workerTools = toolSet(store, "worker");
+    const card = await store.create({ title: "Completed into review", status: "running" });
+    const token = (await runTool(workerTools, "claim", { id: card.id })).token as string;
+    const completed = await runTool(workerTools, "complete", {
+      id: card.id,
+      token,
+      summary: "Ready for review.",
+      closureReason: "delivered",
+    });
+    expect(completed.card).toMatchObject({ status: "review" });
+    expect((await store.get(card.id))?.events?.at(-1)).toMatchObject({
+      kind: "released",
+      ownerId: "worker",
+    });
+
+    // No workboard_reclaim and no workboard_release: the reviewer writes into review directly.
+    const reviewerTools = toolSet(store, "reviewer");
+    const commented = await runTool(reviewerTools, "comment", {
+      id: card.id,
+      body: "Reviewer note.",
+    });
+    expect(commented.card).toMatchObject({
+      metadata: {
+        comments: expect.arrayContaining([expect.objectContaining({ body: "Reviewer note." })]),
+      },
+    });
+    const proofed = await runTool(reviewerTools, "proof", {
+      id: card.id,
+      status: "passed",
+      command: "pnpm test",
+    });
+    expect(proofed.card).toMatchObject({
+      metadata: { proof: expect.arrayContaining([expect.objectContaining({ status: "passed" })]) },
+    });
+  });
+
+  it("lets a reviewer write after the worker moves the card into review", async () => {
+    const store = createWorkboardSqliteTestStore();
+    const workerTools = toolSet(store, "worker");
+    const card = await store.create({ title: "Moved into review", status: "running" });
+    const token = (await runTool(workerTools, "claim", { id: card.id })).token as string;
+    const moved = await runTool(workerTools, "move", { id: card.id, status: "review", token });
+    expect(moved.card).toMatchObject({ status: "review" });
+    expect((await store.get(card.id))?.metadata?.claim).toBeUndefined();
+    expect((await store.get(card.id))?.events?.at(-1)).toMatchObject({
+      kind: "released",
+      ownerId: "worker",
+    });
+
+    const reviewerTools = toolSet(store, "reviewer");
+    const commented = await runTool(reviewerTools, "comment", {
+      id: card.id,
+      body: "Reviewer note.",
+    });
+    expect(commented.card).toMatchObject({
+      metadata: {
+        comments: expect.arrayContaining([expect.objectContaining({ body: "Reviewer note." })]),
+      },
+    });
+    const proofed = await runTool(reviewerTools, "proof", {
+      id: card.id,
+      status: "passed",
+      command: "pnpm test",
+    });
+    expect(proofed.card).toMatchObject({
+      metadata: { proof: expect.arrayContaining([expect.objectContaining({ status: "passed" })]) },
+    });
+  });
+
+  it("refuses acceptance outside a separate reviewer scope", async () => {
+    const store = createWorkboardSqliteTestStore();
+    const workerTools = toolSet(store, "worker");
+    const card = await store.create({ title: "Guarded review", status: "running" });
+    const token = (await runTool(workerTools, "claim", { id: card.id })).token as string;
+
+    await expect(
+      executeTool(toolSet(store, "reviewer"), "accept", { id: card.id }),
+    ).rejects.toThrow(/card is claimed by worker/);
+    await runTool(workerTools, "complete", {
+      id: card.id,
+      token,
+      closureReason: "delivered",
+    });
+    await expect(executeTool(workerTools, "accept", { id: card.id })).rejects.toThrow(
+      /cannot accept its own work/,
+    );
+    expect((await store.get(card.id))?.metadata?.acceptance).toBe("pending");
   });
 
   it("redacts claim tokens from dispatch tool results", async () => {
@@ -704,11 +834,11 @@ describe("workboard tools", () => {
         status: "review",
         token: claim.token,
       });
-      // Review is not terminal: the claim stays with its owner.
-      expect(claimed.card).toMatchObject({
-        status: "review",
-        metadata: { claim: { ownerId } },
-      });
+      // Review hands the card to a reviewer: the worker lease is released, not kept.
+      expect(claimed.card).toMatchObject({ status: "review" });
+      const moved = await store.get(card.id);
+      expect(moved?.metadata?.claim).toBeUndefined();
+      expect(moved?.events?.at(-1)).toMatchObject({ kind: "released", ownerId });
     }
     expect(await previousStore.list()).toEqual([]);
   });

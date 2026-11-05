@@ -218,6 +218,7 @@ function readEvents(
       toStatus: stringValue(row, "to_status") as WorkboardEvent["toStatus"],
       sessionKey: stringValue(row, "session_key"),
       runId: stringValue(row, "run_id"),
+      ownerId: stringValue(row, "owner_id"),
     });
   });
   return events.length > 0 ? events : undefined;
@@ -360,6 +361,8 @@ function readMetadata(
   const claim = parseJson(row.claim_json) as WorkboardMetadata["claim"] | undefined;
   // SAFETY: insertCard serializes WorkboardMetadata.stale unchanged.
   const stale = parseJson(row.stale_json) as WorkboardMetadata["stale"] | undefined;
+  // SAFETY: insertCard serializes WorkboardMetadata.review unchanged.
+  const review = parseJson(row.review_json) as WorkboardMetadata["review"] | undefined;
   return optional(
     definedFields({
       attempts,
@@ -389,6 +392,13 @@ function readMetadata(
       stale: stale || undefined,
       lifecycleStatusSourceUpdatedAt: numberValue(row, "lifecycle_status_source_updated_at"),
       failureCount: numberValue(row, "failure_count"),
+      review: review || undefined,
+      // SAFETY: insertCard persists the WorkboardMetadata closure verdict unchanged.
+      closureReason: stringValue(row, "closure_reason") as WorkboardMetadata["closureReason"],
+      // SAFETY: insertCard persists the WorkboardMetadata acceptance verdict unchanged.
+      acceptance: stringValue(row, "acceptance") as WorkboardMetadata["acceptance"],
+      acceptedBy: stringValue(row, "accepted_by"),
+      acceptedAt: numberValue(row, "accepted_at"),
     }),
   );
 }

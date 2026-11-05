@@ -1,7 +1,11 @@
 import type { WorkboardMetadata } from "@openclaw/workboard-contract";
 import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 
-const SUPPORTED_METADATA_KEYS: Record<keyof WorkboardMetadata, true> = {
+const SUPPORTED_METADATA_KEYS: Record<
+  // Acceptance and closure verdicts are server-owned: only accept()/complete() may write them.
+  Exclude<keyof WorkboardMetadata, "acceptance" | "acceptedAt" | "acceptedBy" | "closureReason">,
+  true
+> = {
   archivedAt: true,
   artifacts: true,
   attempts: true,

@@ -120,6 +120,10 @@ export type WorkboardCompleteInput = WorkboardMutationScope & {
   createdCardIds?: unknown;
   skipReview?: unknown;
   skipReviewReason?: unknown;
+  closureReason?: unknown;
+};
+export type WorkboardAcceptInput = {
+  reason?: unknown;
 };
 export type WorkboardBlockInput = WorkboardMutationScope & {
   reason?: unknown;
