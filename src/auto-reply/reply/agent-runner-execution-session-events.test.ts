@@ -663,11 +663,15 @@ describe("ordinary session event execution", () => {
       state.runEmbeddedAgentMock.mockImplementationOnce(async (params) => {
         const run = params as RunEmbeddedAgentInternalParams;
         token = run.messageActionTurnCapability;
+        const sessionKey = run.sessionKey;
+        if (!sessionKey) {
+          throw new Error("scheduled turn has no session key");
+        }
         const identity = {
           token,
           agentId: "main",
           runId: run.runId,
-          sessionKey: run.agentSessionKey ?? run.sessionKey,
+          sessionKey,
           sessionId: run.sessionId,
         };
         expect(token).toBeTruthy();
@@ -683,14 +687,13 @@ describe("ordinary session event execution", () => {
                 channels: { telegram: { enabled: true } },
                 plugins: { allow: ["telegram"] },
               },
-              agentSessionKey: run.agentSessionKey ?? run.sessionKey,
+              agentSessionKey: run.sessionKey,
               runId: run.runId,
               sessionId: run.sessionId,
               agentChannel: "telegram",
               agentAccountId: "work",
               agentTo: "123",
               messageActionTurnCapability: token,
-              disableMessageTool: true,
             },
             resolvedConfig: {
               channels: { telegram: { enabled: true } },
