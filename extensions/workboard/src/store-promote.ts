@@ -40,8 +40,7 @@ export class WorkboardPromoteStore extends WorkboardEnrichmentStore {
           if (
             current.status === "review" &&
             target === "done" &&
-            current.metadata?.review &&
-            current.metadata.acceptance !== "accepted"
+            current.metadata?.acceptance !== "accepted"
           ) {
             throw new Error(
               "Moving a card from review to done requires acceptance accepted. Accept the review first.",
@@ -63,16 +62,9 @@ export class WorkboardPromoteStore extends WorkboardEnrichmentStore {
               ...(actor ? { actor } : {}),
               at: now,
             };
-          } else if (current.status === "review" && target === "done") {
-            review = {
-              ...(current.metadata?.review ?? { required: true, status: "pending", at: now }),
-              required: true,
-              status: "accepted",
-              ...(reason ? { reason } : {}),
-              ...(actor ? { actor } : {}),
-              at: now,
-            };
           }
+          // Only accept() records the acceptance verdict; review to done leaves it untouched
+          // and keeps the move reason as a comment.
           if (!review && !reason) {
             return { status, position };
           }
@@ -83,11 +75,7 @@ export class WorkboardPromoteStore extends WorkboardEnrichmentStore {
               ...current.metadata,
               comments: appendComment(
                 current.metadata?.comments,
-                review?.status === "rejected"
-                  ? `Review rejected: ${reason}`
-                  : review?.status === "accepted" && reason
-                    ? `Review accepted: ${reason}`
-                    : reason,
+                review?.status === "rejected" ? `Review rejected: ${reason}` : reason,
                 now,
               ),
               ...(review ? { review } : {}),
@@ -119,8 +107,21 @@ export class WorkboardPromoteStore extends WorkboardEnrichmentStore {
       if (!reviewer) {
         throw new Error("Acceptance requires a reviewer identity (scope ownerId).");
       }
-      const worker = existing.metadata?.review?.actor;
-      if (worker && worker === reviewer) {
+      // Self-accept must compare against the agent that actually completed the card.
+      // review.actor moves (accept overwrites it, a rejection overwrites it), so it can never
+      // answer "who completed this". Only review.completedBy can, and it is written once by
+      // complete().
+      //
+      // A missing completer is NOT an unknown completer. Pre-upgrade cards have no recorded
+      // identity, and guessing one from actor would hand the card back to exactly the agent the
+      // gate exists to block. So the accept is refused until the card has been completed once.
+      const completer = existing.metadata?.review?.completedBy;
+      if (!completer) {
+        throw new Error(
+          "Cannot accept: this card has no recorded completer (pre-upgrade). Complete it once so the reviewer identity can be established.",
+        );
+      }
+      if (completer === reviewer) {
         throw new Error(
           "The worker that completed this card cannot accept its own work; a separate reviewer is required.",
         );

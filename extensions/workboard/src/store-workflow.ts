@@ -314,9 +314,16 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
           status: "skipped",
           reason: skipReviewReason,
           ...(worker ? { actor: worker } : {}),
+          ...(worker ? { completedBy: worker } : {}),
           at: now,
         }
-      : { required: true, status: "pending", ...(worker ? { actor: worker } : {}), at: now };
+      : {
+          required: true,
+          status: "pending",
+          ...(worker ? { actor: worker } : {}),
+          ...(worker ? { completedBy: worker } : {}),
+          at: now,
+        };
     const finished = finishRun(existing, skipReview ? "done" : "review", now);
     const metadata = clearDiagnostics(finished.metadata, ["missing_proof"]);
     const reviewMessage = capText(summary, 240);

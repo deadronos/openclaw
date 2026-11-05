@@ -2990,12 +2990,10 @@ describe("Workboard dependency and scheduled promotion", () => {
 
     expect(accepted.status).toBe("done");
     expect(accepted.completedAt).toBeGreaterThan(0);
-    expect(accepted.metadata?.review).toMatchObject({
-      required: true,
-      status: "accepted",
-      reason: "Checked the published page.",
-      actor: "reviewer",
-    });
+    const review = accepted.metadata?.review;
+    expect(review).toMatchObject({ required: true, status: "accepted", actor: "reviewer" });
+    expect(review?.reason).toBeUndefined();
+    expect(accepted.metadata?.comments?.at(-1)?.body).toBe("Checked the published page.");
   });
 
   it("blocks direct running to done and allows an explicit small-task skip", async () => {
