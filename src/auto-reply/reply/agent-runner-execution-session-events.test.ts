@@ -6,9 +6,15 @@ import {
 } from "../../../test/helpers/promise.js";
 import type { RunCliAgentParams } from "../../agents/cli-runner/types.js";
 import type { RunEmbeddedAgentInternalParams } from "../../agents/embedded-agent-runner/run/internal-params.js";
+import { resolveOpenClawPluginToolsForOptionsAsync } from "../../agents/openclaw-plugin-tools.js";
 import * as cronInference from "../../cron/run-inference.js";
 import { TEST_SCHEDULED_OCCURRENCE } from "../../cron/scheduled-occurrence.test-support.js";
 import type { CronAgentExecutionPhaseUpdate } from "../../cron/types.js";
+import {
+  resolveMessageActionTurnAuthorization,
+  resolveMessageActionTurnCapability,
+  revokeMessageActionTurnCapability,
+} from "../../gateway/message-action-turn-capability.js";
 import { onAgentEvent, type AgentEventPayload } from "../../infra/agent-events.js";
 import {
   consumeCronNextCheckProposal,
@@ -16,6 +22,9 @@ import {
 } from "../../infra/agent-run-registry.automation.js";
 import { getAgentRunContext } from "../../infra/agent-run-registry.js";
 import { useBundledProviderPolicyArtifactsForTest } from "../../plugin-sdk/test-helpers/provider-policy-artifacts.test-support.js";
+import { createEmptyPluginRegistry } from "../../plugins/registry-empty.js";
+import { setActivePluginRegistry } from "../../plugins/runtime.js";
+import { createOutboundTestPlugin, createTestRegistry } from "../../test-utils/channel-plugins.js";
 import {
   createFollowupRun,
   createMinimalRunAgentTurnParams,
@@ -628,5 +637,74 @@ describe("ordinary session event execution", () => {
       "completed",
       completionEvidence,
     );
+  });
+
+  it("keeps a scheduled turn running when its delivery capability is already unusable", async () => {
+    const plugin = {
+      ...createOutboundTestPlugin({
+        id: "telegram",
+        outbound: {
+          deliveryMode: "direct",
+          sendText: async () => ({ channel: "telegram", messageId: "sent" }),
+        },
+      }),
+      messaging: {
+        normalizeTarget: (raw: string) => raw,
+        targetResolver: { looksLikeId: () => true, hint: "<chat-id>" },
+      },
+    };
+    setActivePluginRegistry(createTestRegistry([{ pluginId: "telegram", source: "test", plugin }]));
+    const fence = { beforeAttempt: vi.fn(async () => {}), assertCurrent: vi.fn() };
+    const automation = createScheduledAutomation();
+    automation.deliveryAttemptFence = fence;
+    const followupRun = createFollowupRun({ scheduledAutomation: automation });
+    let token: string | undefined;
+    try {
+      state.runEmbeddedAgentMock.mockImplementationOnce(async (params) => {
+        const run = params as RunEmbeddedAgentInternalParams;
+        token = run.messageActionTurnCapability;
+        const identity = {
+          token,
+          agentId: "main",
+          runId: run.runId,
+          sessionKey: run.agentSessionKey ?? run.sessionKey,
+          sessionId: run.sessionId,
+        };
+        expect(token).toBeTruthy();
+        // The cron caller carries the announce fence, so delivery is withheld by design.
+        expect(resolveMessageActionTurnAuthorization(identity)?.deliveryAttempt).toBeDefined();
+        revokeMessageActionTurnCapability(token);
+        expect(resolveMessageActionTurnCapability(identity)).toBeUndefined();
+        // The build no longer throws: the old guard refused here, before any model call.
+        await expect(
+          resolveOpenClawPluginToolsForOptionsAsync({
+            options: {
+              config: {
+                channels: { telegram: { enabled: true } },
+                plugins: { allow: ["telegram"] },
+              },
+              agentSessionKey: run.agentSessionKey ?? run.sessionKey,
+              runId: run.runId,
+              sessionId: run.sessionId,
+              agentChannel: "telegram",
+              agentAccountId: "work",
+              agentTo: "123",
+              messageActionTurnCapability: token,
+              disableMessageTool: true,
+            },
+            resolvedConfig: {
+              channels: { telegram: { enabled: true } },
+              plugins: { allow: ["telegram"] },
+            },
+          }),
+        ).resolves.toBeDefined();
+        return { payloads: [{ text: "done" }], meta: {} };
+      });
+      const result = await executeAgentTurn(createMinimalRunAgentTurnParams({ followupRun }));
+      expect(result.outcome).toMatchObject({ kind: "settled", status: "ok" });
+      expect(token).toBeTruthy();
+    } finally {
+      setActivePluginRegistry(createEmptyPluginRegistry());
+    }
   });
 });
