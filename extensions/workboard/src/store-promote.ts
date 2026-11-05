@@ -46,6 +46,18 @@ export class WorkboardPromoteStore extends WorkboardEnrichmentStore {
               "Moving a card from review to done requires acceptance accepted. Accept the review first.",
             );
           }
+          // A verdict without a recorded completer can only come from pre-upgrade data. Closing on it
+          // would accept work whose author was never established, so the move is refused for the
+          // same reason accept() refuses: the identity is missing, not unknown.
+          if (
+            current.status === "review" &&
+            target === "done" &&
+            !current.metadata?.review?.completedBy
+          ) {
+            throw new Error(
+              "Cannot close: this card has no recorded completer (pre-upgrade). Complete it once so the reviewer identity can be established.",
+            );
+          }
           if (current.status === "review" && target === "running" && !reason) {
             throw new Error(
               "A rejection reason is required when moving a card from review back to running.",
