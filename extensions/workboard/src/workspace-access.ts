@@ -40,6 +40,7 @@ export const WORKBOARD_CARD_TOOL_NAMES = [
   "workboard_claim",
   "workboard_heartbeat",
   "workboard_complete",
+  "workboard_handoff",
   "workboard_accept",
   "workboard_attachment_add",
   "workboard_attachment_read",

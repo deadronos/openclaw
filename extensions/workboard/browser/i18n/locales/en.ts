@@ -384,6 +384,7 @@ export default {
     eventDecomposed: "Decomposed",
     eventClaimed: "Claimed",
     eventReleased: "Released",
+    eventHandoff: "Handed off",
     eventHeartbeat: "Heartbeat",
     eventExecutionUpdated: "Agent updated",
     eventAttemptStarted: "Attempt started",
