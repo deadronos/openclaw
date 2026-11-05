@@ -929,7 +929,7 @@ describe("workboard terminal status writes", () => {
     await expectRunFinished(store, card.id, status);
   });
 
-  it.each(["done", "blocked"] as const)(
+  it.each(["blocked"] as const)(
     "only releases the claim when moving to %s after the run already ended",
     async (status) => {
       const store = createWorkboardSqliteTestStore();
@@ -950,17 +950,6 @@ describe("workboard terminal status writes", () => {
         },
       });
 
-      // Closing from review needs a recorded acceptance; the claim release is what matters here.
-      // The card entered review through lifecycle sync, which records no completer, so seed one
-      // the way complete() would before accepting.
-      if (status === "done") {
-        await store.update(card.id, {
-          metadata: {
-            review: { required: true, status: "pending", completedBy: "worker", at: now },
-          },
-        });
-        await store.accept(card.id, {}, { ownerId: "reviewer" });
-      }
       await store.move(card.id, status, undefined);
 
       const moved = expectDefined(await store.get(card.id), "moved card");
@@ -975,4 +964,28 @@ describe("workboard terminal status writes", () => {
       });
     },
   );
+
+  it("closes a completed card only after a real completion and acceptance", async () => {
+    const store = createWorkboardSqliteTestStore();
+    const card = await store.create({ title: "Completed card", status: "running" });
+    const claim = await store.claim(card.id, { ownerId: "agent-a" });
+    await store.complete(card.id, {
+      ownerId: "agent-a",
+      token: claim.token,
+      summary: "Delivered.",
+      closureReason: "delivered",
+    });
+
+    await store.accept(card.id, {}, { ownerId: "reviewer" });
+    const done = await store.move(card.id, "done", undefined);
+
+    expect(done).toMatchObject({ status: "done" });
+    expect(done.metadata?.claim).toBeUndefined();
+    // The completer is the worker that actually finished the card, not the reviewer.
+    expect(done.metadata?.review).toMatchObject({
+      completedBy: "agent-a",
+      status: "accepted",
+      actor: "reviewer",
+    });
+  });
 });
