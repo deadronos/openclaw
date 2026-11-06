@@ -169,6 +169,7 @@ export function insertCard(
     blocked_on_json: () => jsonValue(metadata?.blockedOn),
     wake_at: () => bindNull(metadata?.wakeAt),
     wake_job_id: () => bindNull(metadata?.wakeJobId),
+    wake_in_minutes: () => bindNull(metadata?.wakeInMinutes),
   })();
 
   insertChildren(db, "workboard_card_labels", card.id, card.labels, {

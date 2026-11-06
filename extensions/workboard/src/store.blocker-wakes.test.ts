@@ -10,6 +10,19 @@ import { createWorkboardSqliteTestStore } from "./test/sqlite-store.js";
 import { createWorkboardTools } from "./tools.js";
 import { buildWorkboardWakeJob, createWorkboardWakeService } from "./wake-scheduler.js";
 
+const warn = vi.hoisted(() => vi.fn());
+
+vi.mock("openclaw/plugin-sdk/runtime-env", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/runtime-env")>();
+  return {
+    ...actual,
+    createSubsystemLogger: (...args: Parameters<typeof actual.createSubsystemLogger>) => ({
+      ...actual.createSubsystemLogger(...args),
+      warn,
+    }),
+  };
+});
+
 const OWNER = "tali";
 const LANE = "1400000000000000001";
 const MISSING_FILE = "/tmp/workboard-fixtures/missing-report.pdf";
@@ -28,6 +41,7 @@ let stopService: (() => void) | undefined;
 afterEach(() => {
   stopService?.();
   stopService = undefined;
+  warn.mockClear();
 });
 
 function setup(config: { bindings?: typeof bindings } = { bindings }) {
@@ -133,6 +147,7 @@ describe("Workboard blocker wakes", () => {
     expect(cron.add).toHaveBeenCalledTimes(1);
     expect(cron.remove).not.toHaveBeenCalled();
     expect(again.metadata?.wakeJobId).toBe(card.metadata?.wakeJobId);
+    expect(again.metadata?.wakeAt).toBe(card.metadata?.wakeAt);
     expect(jobs.size).toBe(1);
   });
 
@@ -213,6 +228,69 @@ describe("Workboard blocker wakes", () => {
 
     expect(unblocked.status).toBe("todo");
     expectNoWakeMetadata(unblocked);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain(
+      `workboard wake for card ${card.id} (job ${card.metadata?.wakeJobId}) was not cancelled`,
+    );
+    expect(warn.mock.calls[0]?.[0]).toContain("scheduler stopping");
+  });
+
+  it("re-arms a consumed wake at the recorded window when a block requests none", async () => {
+    const { store, cron, jobs } = setup();
+    const card = await blockedWithWake(store);
+    const consumed = card.metadata!.wakeJobId!;
+    jobs.delete(consumed);
+    const before = Date.now();
+
+    const again = await store.block(card.id, { reason: "still waiting" }, null);
+
+    expect(cron.add).toHaveBeenCalledTimes(2);
+    const rearmed = again.metadata!.wakeJobId!;
+    expect(rearmed).not.toBe(consumed);
+    expect([...jobs.keys()]).toEqual([rearmed]);
+    expect(jobs.get(rearmed)!.payload.message).toContain(MISSING_FILE);
+    expect(again.metadata?.wakeInMinutes).toBe(30);
+    expect(again.metadata?.wakeAt).toBeGreaterThanOrEqual(before + 30 * 60_000);
+    expect(again.metadata?.wakeAt).toBeLessThan(card.metadata!.wakeAt! + 60_000);
+    expect((await store.get(card.id))?.metadata?.wakeJobId).toBe(rearmed);
+  });
+
+  it("re-arms at 60 minutes when a consumed wake recorded no interval", async () => {
+    const { store, jobs } = setup();
+    const card = await blockedWithWake(store);
+    jobs.delete(card.metadata!.wakeJobId!);
+    const { wakeInMinutes: _dropped, ...metadata } = card.metadata!;
+    await store["store"].register(card.id, { version: 1, card: { ...card, metadata } });
+    const before = Date.now();
+
+    const again = await store.block(card.id, {}, null);
+
+    expect(again.metadata?.wakeInMinutes).toBe(60);
+    expect(again.metadata?.wakeAt).toBeGreaterThanOrEqual(before + 60 * 60_000);
+    expect(jobs.size).toBe(1);
+  });
+
+  it("re-arms when the stored job can no longer fire", async () => {
+    const { store, cron, jobs } = setup();
+    const card = await blockedWithWake(store);
+    jobs.get(card.metadata!.wakeJobId!)!.enabled = false;
+
+    const again = await store.block(card.id, {}, null);
+
+    expect(cron.add).toHaveBeenCalledTimes(2);
+    expect([...jobs.keys()]).toEqual([again.metadata?.wakeJobId]);
+  });
+
+  it("keeps the stored wake when the scheduler cannot say whether it is live", async () => {
+    const { store, cron } = setup();
+    const card = await blockedWithWake(store);
+    cron.list.mockRejectedValueOnce(new Error("scheduler stopping"));
+
+    const again = await store.block(card.id, {}, null);
+
+    expect(cron.add).toHaveBeenCalledTimes(1);
+    expect(again.metadata?.wakeJobId).toBe(card.metadata?.wakeJobId);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(card.id));
   });
 
   it("leaves a running job to finish instead of cancelling the agent it woke", async () => {

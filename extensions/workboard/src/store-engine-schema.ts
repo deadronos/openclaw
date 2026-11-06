@@ -10,7 +10,7 @@ const VERDICT_COLUMN_LINE =
   /\n {2}"(?:review_json|closure_reason|acceptance|accepted_by)" text COLLATE "C",|\n {2}"accepted_at" bigint,/g;
 const EVENT_OWNER_COLUMN_LINE = /\n {2}"owner_id" text COLLATE "C",/g;
 const WAKE_COLUMN_LINE =
-  /\n {2}"(?:blocked_on_json|wake_job_id)" text COLLATE "C",?|\n {2}"wake_at" bigint,?/g;
+  /\n {2}"(?:blocked_on_json|wake_job_id)" text COLLATE "C",?|\n {2}"wake_(?:at|in_minutes)" bigint,?/g;
 
 /** Version 5 carried no blocker or wake columns. */
 const WORKBOARD_POSTGRES_SCHEMA_V5_SQL = WORKBOARD_POSTGRES_SCHEMA_SQL.replace(
@@ -70,7 +70,8 @@ ALTER TABLE "workboard_card_events" ADD COLUMN IF NOT EXISTS "owner_id" text COL
       sql: `ALTER TABLE "workboard_cards"
   ADD COLUMN IF NOT EXISTS "blocked_on_json" text COLLATE "C",
   ADD COLUMN IF NOT EXISTS "wake_at" bigint,
-  ADD COLUMN IF NOT EXISTS "wake_job_id" text COLLATE "C";`,
+  ADD COLUMN IF NOT EXISTS "wake_job_id" text COLLATE "C",
+  ADD COLUMN IF NOT EXISTS "wake_in_minutes" bigint;`,
     },
   ],
 };

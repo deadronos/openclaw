@@ -190,6 +190,7 @@ CREATE TABLE "workboard_cards" (
   "blocked_on_json" text COLLATE "C",
   "wake_at" bigint,
   "wake_job_id" text COLLATE "C",
+  "wake_in_minutes" bigint,
   PRIMARY KEY ("id")
 );
 

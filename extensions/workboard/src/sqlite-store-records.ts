@@ -404,6 +404,7 @@ function readMetadata(
       blockedOn: blockedOn || undefined,
       wakeAt: numberValue(row, "wake_at"),
       wakeJobId: stringValue(row, "wake_job_id"),
+      wakeInMinutes: numberValue(row, "wake_in_minutes"),
     }),
   );
 }

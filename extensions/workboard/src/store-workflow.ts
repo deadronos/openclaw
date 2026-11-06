@@ -62,6 +62,7 @@ import {
 import { WorkboardPromoteStore } from "./store-promote.js";
 import { finishRun } from "./store-status-write.js";
 import { normalizeBlockedOn, readWakeInMinutes } from "./store-wake-normalizers.js";
+import { DEFAULT_WORKBOARD_WAKE_MINUTES, isWorkboardWakeLive } from "./store-wake-support.js";
 
 const log = createSubsystemLogger("workboard");
 
@@ -404,7 +405,16 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         "Workboard card blocked.";
       const patch = this.buildBlockedCardPatch(existing, reason, now, options);
       const blockedOn = requestedBlocker ?? existing.metadata?.blockedOn;
-      if (wakeInMinutes === undefined) {
+      const previousJobId = existing.metadata?.wakeJobId;
+      // A block that asks for no wake keeps a live one. If that job already fired, keeping its id
+      // would leave the card blocked with no wake coming, so arm another at the same window.
+      const wakeMinutes =
+        wakeInMinutes ??
+        (previousJobId &&
+        !(await isWorkboardWakeLive(this.wakeScheduler, existing.id, previousJobId))
+          ? (existing.metadata?.wakeInMinutes ?? DEFAULT_WORKBOARD_WAKE_MINUTES)
+          : undefined);
+      if (wakeMinutes === undefined) {
         // Accepted edge: a new blocker without a new wake leaves an armed job's message stale.
         return await this.updateCard(
           existing,
@@ -414,17 +424,17 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
                 wake: {
                   blockedOn,
                   wakeAt: existing.metadata?.wakeAt,
-                  wakeJobId: existing.metadata?.wakeJobId,
+                  wakeJobId: previousJobId,
+                  wakeInMinutes: existing.metadata?.wakeInMinutes,
                 },
               }
             : {},
         );
       }
-      const previousJobId = existing.metadata?.wakeJobId;
       if (previousJobId) {
-        await this.cancelWake(previousJobId);
+        await this.cancelWake(existing.id, previousJobId);
       }
-      const wakeAt = addWorkboardDurationMs(now, wakeInMinutes * 60_000);
+      const wakeAt = addWorkboardDurationMs(now, wakeMinutes * 60_000);
       let wakeJobId: string | undefined;
       try {
         // The claim is cleared by this block, so read the owner from the card as it stands.
@@ -460,11 +470,16 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       }
       try {
         return await this.updateCard(existing, patch, {
-          wake: { blockedOn, wakeAt: wakeJobId ? wakeAt : undefined, wakeJobId },
+          wake: {
+            blockedOn,
+            wakeAt: wakeJobId ? wakeAt : undefined,
+            wakeJobId,
+            wakeInMinutes: wakeJobId ? wakeMinutes : undefined,
+          },
         });
       } catch (error) {
         if (wakeJobId) {
-          await this.cancelWake(wakeJobId);
+          await this.cancelWake(existing.id, wakeJobId);
         }
         throw error;
       }
