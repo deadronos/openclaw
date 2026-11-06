@@ -16,7 +16,10 @@ describe("workboard plugin contracts", () => {
       toolMetadata?: Record<string, { optional?: boolean }>;
     };
     const declared = new Set(manifest.contracts?.tools ?? []);
-    const registered = [...WORKBOARD_CARD_TOOL_NAMES, ...WORKBOARD_SESSIONS_BOARD_TOOL_NAMES];
+    const registered: string[] = [
+      ...WORKBOARD_CARD_TOOL_NAMES,
+      ...WORKBOARD_SESSIONS_BOARD_TOOL_NAMES,
+    ];
     const missing = registered.filter((name) => !declared.has(name));
     // The reverse direction: a declared tool that no longer registers is the same drift, and a
     // one-way check never sees it.

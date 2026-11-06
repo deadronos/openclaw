@@ -919,8 +919,6 @@ describe("workboard terminal status writes", () => {
         token,
       });
       expect(moved.card).toMatchObject({ status });
-    } else if (action === "update") {
-      await store.update(card.id, { status });
     } else {
       await store.block(card.id, { ownerId: "agent-a", token, reason: "Workboard card blocked." });
       await store.move(card.id, "blocked", undefined);
