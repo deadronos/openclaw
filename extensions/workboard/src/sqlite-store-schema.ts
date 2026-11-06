@@ -63,6 +63,7 @@ function ensureWorkboardSchema(db: DatabaseSync): void {
     ["blocked_on_json", "TEXT"],
     ["wake_at", "INTEGER"],
     ["wake_job_id", "TEXT"],
+    ["wake_in_minutes", "INTEGER"],
   ] as const) {
     if (!cardColumns.has(column)) {
       db.exec(`ALTER TABLE workboard_cards ADD COLUMN ${column} ${type}`);

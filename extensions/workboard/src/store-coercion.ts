@@ -1,6 +1,7 @@
 // Shared coercion primitives used by the Workboard metadata normalizers.
 import { resolveOptionalIntegerOption } from "openclaw/plugin-sdk/number-runtime";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { MAX_RUN_ID_LENGTH } from "./store-constants.js";
 
 export function normalizeBoundedString(
   value: unknown,
@@ -37,4 +38,8 @@ export function normalizeEnumValue<T extends string, TFallback extends T | undef
 
 export function normalizeTimestamp(value: unknown, fallback: number): number {
   return resolveOptionalIntegerOption(value, { min: 0 }) ?? fallback;
+}
+
+export function normalizeRunId(value: unknown): string | undefined {
+  return normalizeBoundedString(value, undefined, MAX_RUN_ID_LENGTH, "run id");
 }

@@ -55,7 +55,7 @@ import {
 import { readCards } from "./store-read.js";
 import { resolveLifecycleStatusWrite, settleManualStatusTransition } from "./store-status-write.js";
 import { normalizeCappedStringList } from "./store-string-lists.js";
-import { cancelWorkboardWake } from "./store-wake-support.js";
+import { cancelWorkboardWake, CLEARED_WAKE_STATE } from "./store-wake-support.js";
 import type { WorkboardWakeScheduler } from "./wake-scheduler.js";
 
 export class WorkboardCoreStore extends WorkboardBoardStore {
@@ -63,8 +63,8 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
   /** Set by the plugin entry. CLI one-shots have no scheduler, so their cancels only warn. */
   wakeScheduler: WorkboardWakeScheduler | undefined;
 
-  protected async cancelWake(jobId: string): Promise<void> {
-    await cancelWorkboardWake(this.wakeScheduler, jobId);
+  protected async cancelWake(cardId: string, jobId: string): Promise<void> {
+    await cancelWorkboardWake(this.wakeScheduler, cardId, jobId);
   }
 
   async compensateWorkspaceMutation(before: WorkboardCard, after: WorkboardCard): Promise<void> {
@@ -483,7 +483,7 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
     if (options.wake) {
       metadata = { ...metadata, ...options.wake };
     } else if (retiresWake) {
-      metadata = { ...metadata, blockedOn: undefined, wakeAt: undefined, wakeJobId: undefined };
+      metadata = { ...metadata, ...CLEARED_WAKE_STATE };
     }
     const automationPatch: Record<string, unknown> = {};
     for (const key of [
@@ -593,7 +593,7 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
       await this.deleteDetachedAttachments(existing, next);
       const retiredWakeJobId = !options.wake && retiresWake ? existing.metadata?.wakeJobId : null;
       if (retiredWakeJobId) {
-        await this.cancelWake(retiredWakeJobId);
+        await this.cancelWake(next.id, retiredWakeJobId);
       }
       return next;
     }
@@ -651,7 +651,7 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
         return { deleted: false };
       }
       if (wakeJobId) {
-        await this.cancelWake(wakeJobId);
+        await this.cancelWake(cardId, wakeJobId);
       }
       for (const entry of await this.subscriptionStore.entries()) {
         if (entry.value.subscription.cardId === cardId) {

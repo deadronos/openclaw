@@ -17,6 +17,8 @@ export type WorkboardWakeScheduler = {
   arm: (request: WorkboardWakeRequest) => Promise<string>;
   /** Removing a job that no longer exists is a no-op. */
   cancel: (jobId: string) => Promise<void>;
+  /** False once the job has fired and gone, or can no longer fire. Rejects when unreachable. */
+  isLive: (jobId: string) => Promise<boolean>;
 };
 
 type WakeOwner = Pick<Parameters<OpenClawPluginService["start"]>[0], "logger" | "getCron">;
@@ -129,6 +131,11 @@ export function createWorkboardWakeService(params: {
           return;
         }
         await cron.remove(jobId);
+      },
+      isLive: async (jobId) => {
+        const { cron } = requireCron();
+        const job = (await cron.list({ includeDisabled: true })).find(({ id }) => id === jobId);
+        return job !== undefined && job.enabled !== false;
       },
     },
   };

@@ -58,7 +58,7 @@ export type WorkboardUpdateCardOptions = {
    * Owned wake state. An object replaces the fields and the caller owns the job; null clears them
    * and cancels the job even when the card stays blocked.
    */
-  wake?: Pick<WorkboardMetadata, "blockedOn" | "wakeAt" | "wakeJobId"> | null;
+  wake?: Pick<WorkboardMetadata, "blockedOn" | "wakeAt" | "wakeJobId" | "wakeInMinutes"> | null;
 };
 export type WorkboardCommentInput = { body?: unknown };
 export type WorkboardLinkInput = {

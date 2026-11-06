@@ -48,8 +48,10 @@ import { definedFields } from "../record-fields.js";
 import {
   normalizeBoundedString,
   normalizeEnumValue,
+  normalizeRunId,
   normalizeTimestamp,
 } from "./store-coercion.js";
+export { normalizeRunId } from "./store-coercion.js";
 import {
   MAX_ATTACHMENT_BYTES,
   MAX_CARD_ARTIFACTS,
@@ -62,7 +64,6 @@ import {
   MAX_CARD_NOTIFICATIONS,
   MAX_CARD_PROOF,
   MAX_CARD_WORKER_LOGS,
-  MAX_RUN_ID_LENGTH,
 } from "./store-constants.js";
 import type {
   WorkboardAttachmentInput,
@@ -108,10 +109,6 @@ export function normalizeNotes(value: unknown): string | undefined {
     throw new Error("notes must be 4000 characters or fewer.");
   }
   return notes;
-}
-
-export function normalizeRunId(value: unknown): string | undefined {
-  return normalizeBoundedString(value, undefined, MAX_RUN_ID_LENGTH, "run id");
 }
 
 export function capText(value: string | undefined, max: number): string | undefined {
@@ -807,6 +804,7 @@ export function normalizeMetadata(
     blockedOn: fallback.blockedOn,
     wakeAt: fallback.wakeAt,
     wakeJobId: fallback.wakeJobId,
+    wakeInMinutes: fallback.wakeInMinutes,
   };
   return trimMetadataToBudget(normalized, options);
 }

@@ -74,7 +74,8 @@ export const WORKBOARD_SCHEMA_SQL = `
       accepted_at INTEGER,
       blocked_on_json TEXT,
       wake_at INTEGER,
-      wake_job_id TEXT
+      wake_job_id TEXT,
+      wake_in_minutes INTEGER
     ) STRICT;
     CREATE INDEX IF NOT EXISTS workboard_cards_board_status_idx
       ON workboard_cards(board_id, status, position);

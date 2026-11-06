@@ -305,7 +305,9 @@ and announces it to the Discord channel or thread bound to that agent in
 `bindings`. With no such binding the job still runs and only reaches the session;
 if no job can be created, the block stands and a comment on the card says so.
 
-Blocking again with `wakeInMinutes` replaces the armed wake. Any path that takes
+Blocking again with `wakeInMinutes` replaces the armed wake. Blocking again without
+it keeps a wake that is still scheduled; if that wake was already consumed, a new one
+is armed at the card's recorded interval (60 minutes when none was recorded). Any path that takes
 the card out of `blocked`, plus claiming, reassigning, archiving, or deleting it,
 cancels the wake and clears these fields. CLI one-shots have no scheduler: a card
 they resolve keeps its job until it fires, and the woken agent is told to do

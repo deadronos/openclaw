@@ -13,6 +13,7 @@ const SUPPORTED_METADATA_KEYS: Record<
     | "blockedOn"
     | "wakeAt"
     | "wakeJobId"
+    | "wakeInMinutes"
   >,
   true
 > = {

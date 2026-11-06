@@ -666,4 +666,78 @@ describe("Workboard SQLite schema admission", () => {
         .get(),
     ).toEqual({ found: 1 });
   });
+
+  // Builds a real version 5 file and verifies the wake columns arrive without touching its rows.
+  test("migrates a version 5 database with card rows to the wake columns", async () => {
+    const dbPath = databasePath();
+    const WAKE_COLUMNS = ["blocked_on_json", "wake_at", "wake_job_id", "wake_in_minutes"];
+    const seeded: WorkboardCard = {
+      id: "card-v5",
+      title: "Survives the upgrade",
+      status: "review",
+      priority: "high",
+      labels: ["code"],
+      position: 1000,
+      createdAt: 10,
+      updatedAt: 20,
+      agentId: "tali",
+      metadata: {
+        comments: [{ id: "comment-1", body: "Keep me", createdAt: 11 }],
+        review: { required: true, status: "pending", completedBy: "tali", at: 12 },
+        closureReason: "delivered",
+        acceptance: "pending",
+      },
+    };
+    const seedStores = createWorkboardSqliteStores({ dbPath, workerModuleUrl });
+    await seedStores.cards.register(seeded.id, { version: 1, card: seeded });
+    await seedStores.close();
+    await legacyDatabase(dbPath);
+    const cardColumns = (db: DatabaseSync) =>
+      db
+        .prepare("PRAGMA table_info(workboard_cards)")
+        .all()
+        .map((row) => row.name);
+    {
+      using legacy = new DatabaseSync(dbPath);
+      legacy.exec(`
+        ${WAKE_COLUMNS.map((column) => `ALTER TABLE workboard_cards DROP COLUMN ${column};`).join("\n")}
+        DELETE FROM workboard_schema_migrations;
+        INSERT INTO workboard_schema_migrations (id, applied_at) VALUES ('schema-5', 1);
+      `);
+      expect(cardColumns(legacy)).not.toEqual(expect.arrayContaining([WAKE_COLUMNS[0]]));
+    }
+
+    const migratedStores = createWorkboardSqliteStores({ dbPath, workerModuleUrl });
+    try {
+      await expect(migratedStores.cards.lookup(seeded.id)).resolves.toEqual({
+        version: 1,
+        card: seeded,
+      });
+    } finally {
+      await migratedStores.close();
+    }
+    using migrated = new DatabaseSync(dbPath, { readOnly: true });
+    expect(cardColumns(migrated)).toEqual(expect.arrayContaining(WAKE_COLUMNS));
+    expect(
+      migrated
+        .prepare(`SELECT id, title, status, ${WAKE_COLUMNS.join(", ")} FROM workboard_cards`)
+        .all(),
+    ).toEqual([
+      {
+        id: "card-v5",
+        title: "Survives the upgrade",
+        status: "review",
+        blocked_on_json: null,
+        wake_at: null,
+        wake_job_id: null,
+        wake_in_minutes: null,
+      },
+    ]);
+    expect(
+      migrated.prepare("SELECT id FROM workboard_schema_migrations ORDER BY id").all(),
+    ).toEqual([{ id: "schema-5" }, { id: "schema-6" }]);
+    expect(
+      migrated.prepare("SELECT strict FROM pragma_table_list WHERE name = 'workboard_cards'").get(),
+    ).toEqual({ strict: 1 });
+  });
 });

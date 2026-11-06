@@ -438,6 +438,8 @@ export type WorkboardMetadata = {
   blockedOn?: WorkboardBlockedOn;
   wakeAt?: number;
   wakeJobId?: string;
+  /** The requested interval, reused to re-arm when a later block finds the wake consumed. */
+  wakeInMinutes?: number;
 };
 
 export type WorkboardCard = {
