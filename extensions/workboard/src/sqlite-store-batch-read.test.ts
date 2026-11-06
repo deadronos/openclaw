@@ -662,7 +662,7 @@ describe("Workboard SQLite schema admission", () => {
     ).toEqual({ strict: 1 });
     expect(
       migrated
-        .prepare("SELECT 1 AS found FROM workboard_schema_migrations WHERE id = 'schema-5'")
+        .prepare("SELECT 1 AS found FROM workboard_schema_migrations WHERE id = 'schema-6'")
         .get(),
     ).toEqual({ found: 1 });
   });

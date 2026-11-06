@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 export const WORKBOARD_SCHEMA_SQL = `
     CREATE TABLE IF NOT EXISTS workboard_schema_migrations (
@@ -71,7 +71,10 @@ export const WORKBOARD_SCHEMA_SQL = `
       closure_reason TEXT,
       acceptance TEXT,
       accepted_by TEXT,
-      accepted_at INTEGER
+      accepted_at INTEGER,
+      blocked_on_json TEXT,
+      wake_at INTEGER,
+      wake_job_id TEXT
     ) STRICT;
     CREATE INDEX IF NOT EXISTS workboard_cards_board_status_idx
       ON workboard_cards(board_id, status, position);

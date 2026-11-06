@@ -295,6 +295,26 @@ Sessions boards never hold cards: card creation, capture, and dispatch reject a
 Sessions board destination. Deleting one removes its pins without deleting any
 sessions or its Board agent conversation.
 
+## Blockers and wakes
+
+`workboard_block` and `workboard.cards.block` accept an optional
+`blockedOn` (`{ kind: "card" | "person" | "artifact", value }`) and
+`wakeInMinutes` (integer, at least 1). A wake creates one one-shot scheduled job
+that starts a turn in `session:agent:<owner>:main`, naming the card and blocker,
+and announces it to the Discord channel or thread bound to that agent in
+`bindings`. With no such binding the job still runs and only reaches the session;
+if no job can be created, the block stands and a comment on the card says so.
+
+Blocking again with `wakeInMinutes` replaces the armed wake. Any path that takes
+the card out of `blocked`, plus claiming, reassigning, archiving, or deleting it,
+cancels the wake and clears these fields. CLI one-shots have no scheduler: a card
+they resolve keeps its job until it fires, and the woken agent is told to do
+nothing if the card is no longer blocked.
+
+`workboard_list` and `workboard.cards.list` accept `view`: `held` returns blocked
+cards with a wake armed, and `overdue` returns claimed cards past their claim
+window. On the Gateway method, a view filters each page, so follow `nextCursor`.
+
 ## Card fields
 
 | Field       | Values                                                                                                                                 |

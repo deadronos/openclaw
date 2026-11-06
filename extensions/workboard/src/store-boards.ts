@@ -8,6 +8,7 @@ import type {
   WorkboardSessionPlacement,
   WorkboardSessionsBoard,
   WorkboardSessionsBoardSpec,
+  WorkboardStatus,
 } from "@openclaw/workboard-contract";
 import { WORKBOARD_STATUSES } from "@openclaw/workboard-contract";
 import { redactClaimToken } from "./card-redaction.js";
@@ -23,7 +24,11 @@ import type {
 } from "./persistence-types.js";
 import { normalizeBoardMetadata } from "./store-board-normalizers.js";
 import { compareCards } from "./store-card-helpers.js";
-import type { WorkboardBoardInput, WorkboardListOptions } from "./store-inputs.js";
+import type {
+  WorkboardBoardInput,
+  WorkboardListOptions,
+  WorkboardStatsResult,
+} from "./store-inputs.js";
 import { normalizeBoardId, normalizeBoardIdRequired } from "./store-normalizers.js";
 import { readCards } from "./store-read.js";
 import { WorkboardStoreRuntime } from "./store-runtime.js";
@@ -126,6 +131,38 @@ export class WorkboardBoardStore extends WorkboardStoreRuntime {
       }
       return pending;
     });
+  }
+
+  async stats(input: WorkboardListOptions = {}, now = Date.now()): Promise<WorkboardStatsResult> {
+    const boardId = normalizeBoardId(input.boardId);
+    const aggregates = await this.store.listStatsAggregates(boardId);
+    const byStatus: Partial<Record<WorkboardStatus, number>> = {};
+    const byAgent = Object.create(null) as Record<string, number>;
+    let oldestReadyAt: number | undefined;
+    let updatedAt: number | undefined;
+    let archived = 0;
+    let total = 0;
+    for (const aggregate of aggregates) {
+      byStatus[aggregate.status] = (byStatus[aggregate.status] ?? 0) + aggregate.total;
+      const agentId = aggregate.agentId ?? "(default)";
+      byAgent[agentId] = (byAgent[agentId] ?? 0) + aggregate.total;
+      total += aggregate.total;
+      archived += aggregate.archived;
+      if (aggregate.oldestReadyAt !== undefined) {
+        oldestReadyAt = Math.min(oldestReadyAt ?? aggregate.oldestReadyAt, aggregate.oldestReadyAt);
+      }
+      updatedAt = Math.max(updatedAt ?? 0, aggregate.updatedAt);
+    }
+    return {
+      id: boardId ?? "all",
+      total,
+      active: total - archived,
+      archived,
+      byStatus,
+      byAgent,
+      ...(oldestReadyAt ? { oldestReadyAgeMs: Math.max(0, now - oldestReadyAt) } : {}),
+      ...(updatedAt ? { updatedAt } : {}),
+    };
   }
 
   listBoards(): Promise<{ boards: WorkboardBoardSummary[] }> {

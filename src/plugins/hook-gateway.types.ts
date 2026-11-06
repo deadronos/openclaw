@@ -148,16 +148,31 @@ type PluginHookGatewayCronCreateInput = {
   name: string;
   description: string;
   enabled: boolean;
-  schedule: {
-    kind: string;
-    expr: string;
-    tz?: string;
-  };
+  schedule:
+    | {
+        kind: string;
+        expr: string;
+        tz?: string;
+      }
+    | {
+        kind: "at";
+        /** Absolute ISO 8601 time, with offset. */
+        at: string;
+      };
+  /** Agent that owns the job and runs its turn. */
+  agentId?: string;
   sessionTarget: string;
   wakeMode: string;
   payload: {
     kind: string;
     text?: string;
+    message?: string;
+  };
+  delivery?: {
+    mode: "announce" | "none";
+    channel?: string;
+    to?: string;
+    threadId?: string | number;
   };
 };
 

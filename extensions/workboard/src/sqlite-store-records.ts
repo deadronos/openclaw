@@ -363,6 +363,8 @@ function readMetadata(
   const stale = parseJson(row.stale_json) as WorkboardMetadata["stale"] | undefined;
   // SAFETY: insertCard serializes WorkboardMetadata.review unchanged.
   const review = parseJson(row.review_json) as WorkboardMetadata["review"] | undefined;
+  // SAFETY: insertCard serializes WorkboardMetadata.blockedOn unchanged.
+  const blockedOn = parseJson(row.blocked_on_json) as WorkboardMetadata["blockedOn"] | undefined;
   return optional(
     definedFields({
       attempts,
@@ -399,6 +401,9 @@ function readMetadata(
       acceptance: stringValue(row, "acceptance") as WorkboardMetadata["acceptance"],
       acceptedBy: stringValue(row, "accepted_by"),
       acceptedAt: numberValue(row, "accepted_at"),
+      blockedOn: blockedOn || undefined,
+      wakeAt: numberValue(row, "wake_at"),
+      wakeJobId: stringValue(row, "wake_job_id"),
     }),
   );
 }
