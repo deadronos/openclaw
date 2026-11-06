@@ -1,10 +1,15 @@
-import { WORKBOARD_STATUSES, type WorkboardCard } from "@openclaw/workboard-contract";
+import {
+  WORKBOARD_BLOCKER_KINDS,
+  WORKBOARD_STATUSES,
+  type WorkboardCard,
+} from "@openclaw/workboard-contract";
 import { listAgentIds } from "openclaw/plugin-sdk/agent-runtime";
 import { jsonResult, readStringParam } from "openclaw/plugin-sdk/core";
 import { resolveIntegerOption } from "openclaw/plugin-sdk/number-runtime";
 import type { AnyAgentTool, OpenClawPluginToolContext } from "openclaw/plugin-sdk/plugin-entry";
 import { Type } from "typebox";
 import { redactClaimToken } from "./card-redaction.js";
+import { cardMatchesView, WORKBOARD_CARD_VIEWS } from "./store-card-helpers.js";
 import { normalizeCappedStringList } from "./store-string-lists.js";
 import type { WorkboardStore } from "./store.js";
 import {
@@ -56,6 +61,9 @@ function summarizeCard(card: WorkboardCard) {
           expiresAt: card.metadata.claim.expiresAt,
         }
       : undefined,
+    blockedOn: card.metadata?.blockedOn,
+    wakeAt: card.metadata?.wakeAt,
+    wakeJobId: card.metadata?.wakeJobId,
     diagnostics: card.metadata?.diagnostics,
     archivedAt: card.metadata?.archivedAt,
     updatedAt: card.updatedAt,
@@ -84,6 +92,15 @@ const CardIdSchema = strictObject({
 const toolSchemas = {
   list: strictObject({
     status: Type.Optional(Type.String({ description: "Optional card status filter." })),
+    view: Type.Optional(
+      Type.Union(
+        WORKBOARD_CARD_VIEWS.map((view) => Type.Literal(view)),
+        {
+          description:
+            "held: blocked cards with a wake armed. overdue: claimed cards past their claim window.",
+        },
+      ),
+    ),
     agentId: Type.Optional(Type.String({ description: "Optional agent id filter." })),
     tenant: Type.Optional(Type.String({ description: "Optional tenant filter." })),
     boardId: Type.Optional(Type.String({ description: "Optional board id filter." })),
@@ -233,6 +250,22 @@ const toolSchemas = {
     id: cardIdField(),
     token: claimTokenField(),
     reason: Type.Optional(Type.String({ description: "Blocker summary." })),
+    blockedOn: Type.Optional(
+      strictObject({
+        kind: Type.Union(
+          WORKBOARD_BLOCKER_KINDS.map((kind) => Type.Literal(kind)),
+          { description: "What the card waits on." },
+        ),
+        value: Type.String({ description: "Card id, person, or artifact path or name." }),
+      }),
+    ),
+    wakeInMinutes: Type.Optional(
+      Type.Integer({
+        minimum: 1,
+        description:
+          "Wake the owner this many minutes from now. Replaces any armed wake; leaving blocked cancels it.",
+      }),
+    ),
   }),
   accept: strictObject({
     id: cardIdField(),
@@ -288,9 +321,12 @@ export function createWorkboardTools(params: {
         const tenant = typeof record.tenant === "string" ? record.tenant : undefined;
         const boardId = typeof record.boardId === "string" ? record.boardId : undefined;
         const limit = resolveIntegerOption(record.limit, 50, { min: 1, max: 200 });
+        const view = WORKBOARD_CARD_VIEWS.find((candidate) => candidate === record.view);
+        const now = Date.now();
         const cards = (await store.list({ boardId }))
           .filter((card) => record.includeArchived === true || !card.metadata?.archivedAt)
           .filter((card) => !status || card.status === status)
+          .filter((card) => !view || cardMatchesView(card, view, now))
           .filter((card) => !agentId || card.agentId === agentId)
           .filter((card) => !tenant || card.metadata?.automation?.tenant === tenant)
           .slice(0, limit)
@@ -501,7 +537,8 @@ export function createWorkboardTools(params: {
     {
       name: "workboard_block",
       label: "Workboard Block",
-      description: "Block a claimed Workboard card with a durable reason and release the claim.",
+      description:
+        "Block a claimed Workboard card with a durable reason and release the claim. Optionally name what it waits on and wake the owner later.",
       parameters: toolSchemas.block,
       execute: claimedCardMutation((id, record, scope) => store.block(id, record, scope)),
     },

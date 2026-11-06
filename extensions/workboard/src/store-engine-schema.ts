@@ -9,11 +9,19 @@ import { SCHEMA_VERSION, WORKBOARD_SCHEMA_SQL } from "./workboard-schema.js";
 const VERDICT_COLUMN_LINE =
   /\n {2}"(?:review_json|closure_reason|acceptance|accepted_by)" text COLLATE "C",|\n {2}"accepted_at" bigint,/g;
 const EVENT_OWNER_COLUMN_LINE = /\n {2}"owner_id" text COLLATE "C",/g;
+const WAKE_COLUMN_LINE =
+  /\n {2}"(?:blocked_on_json|wake_job_id)" text COLLATE "C",?|\n {2}"wake_at" bigint,?/g;
+
+/** Version 5 carried no blocker or wake columns. */
+const WORKBOARD_POSTGRES_SCHEMA_V5_SQL = WORKBOARD_POSTGRES_SCHEMA_SQL.replace(
+  WAKE_COLUMN_LINE,
+  "",
+);
 
 /** Version 4 carried no review verdict columns and no released-event owner. */
 const withoutVerdictColumns = (sql: string) =>
   sql.replace(VERDICT_COLUMN_LINE, "").replace(EVENT_OWNER_COLUMN_LINE, "");
-const WORKBOARD_POSTGRES_SCHEMA_V4_SQL = withoutVerdictColumns(WORKBOARD_POSTGRES_SCHEMA_SQL);
+const WORKBOARD_POSTGRES_SCHEMA_V4_SQL = withoutVerdictColumns(WORKBOARD_POSTGRES_SCHEMA_V5_SQL);
 // Fail fast if the regex stops matching: a leaked column would make the v4 snapshot silently wrong.
 const LEAKED_V4_COLUMN = [
   "review_json",
@@ -41,12 +49,12 @@ export const workboardEngineSchema: StoreSchema = {
         postgres: withLegacyPostgresIndexOrdering(WORKBOARD_POSTGRES_SCHEMA_V4_SQL),
       },
       schema: { postgres: WORKBOARD_POSTGRES_SCHEMA_V4_SQL },
-      sql: postgresIndexOrderingMigration(WORKBOARD_POSTGRES_SCHEMA_SQL),
+      sql: postgresIndexOrderingMigration(WORKBOARD_POSTGRES_SCHEMA_V5_SQL),
     },
     {
       version: 5,
       fromSchema: { postgres: WORKBOARD_POSTGRES_SCHEMA_V4_SQL },
-      schema: { postgres: WORKBOARD_POSTGRES_SCHEMA_SQL },
+      schema: { postgres: WORKBOARD_POSTGRES_SCHEMA_V5_SQL },
       sql: `ALTER TABLE "workboard_cards"
   ADD COLUMN IF NOT EXISTS "review_json" text COLLATE "C",
   ADD COLUMN IF NOT EXISTS "closure_reason" text COLLATE "C",
@@ -54,6 +62,15 @@ export const workboardEngineSchema: StoreSchema = {
   ADD COLUMN IF NOT EXISTS "accepted_by" text COLLATE "C",
   ADD COLUMN IF NOT EXISTS "accepted_at" bigint;
 ALTER TABLE "workboard_card_events" ADD COLUMN IF NOT EXISTS "owner_id" text COLLATE "C";`,
+    },
+    {
+      version: 6,
+      fromSchema: { postgres: WORKBOARD_POSTGRES_SCHEMA_V5_SQL },
+      schema: { postgres: WORKBOARD_POSTGRES_SCHEMA_SQL },
+      sql: `ALTER TABLE "workboard_cards"
+  ADD COLUMN IF NOT EXISTS "blocked_on_json" text COLLATE "C",
+  ADD COLUMN IF NOT EXISTS "wake_at" bigint,
+  ADD COLUMN IF NOT EXISTS "wake_job_id" text COLLATE "C";`,
     },
   ],
 };

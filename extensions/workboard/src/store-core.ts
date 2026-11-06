@@ -31,10 +31,8 @@ import type {
   WorkboardCommentInput,
   WorkboardLinkInput,
   WorkboardLinkedCreateInput,
-  WorkboardListOptions,
   WorkboardMutationScope,
   WorkboardOwnedCardPatch,
-  WorkboardStatsResult,
   WorkboardUpdateCardOptions,
 } from "./store-inputs.js";
 import {
@@ -57,9 +55,17 @@ import {
 import { readCards } from "./store-read.js";
 import { resolveLifecycleStatusWrite, settleManualStatusTransition } from "./store-status-write.js";
 import { normalizeCappedStringList } from "./store-string-lists.js";
+import { cancelWorkboardWake } from "./store-wake-support.js";
+import type { WorkboardWakeScheduler } from "./wake-scheduler.js";
 
 export class WorkboardCoreStore extends WorkboardBoardStore {
   private lastNotificationSequence = 0;
+  /** Set by the plugin entry. CLI one-shots have no scheduler, so their cancels only warn. */
+  wakeScheduler: WorkboardWakeScheduler | undefined;
+
+  protected async cancelWake(jobId: string): Promise<void> {
+    await cancelWorkboardWake(this.wakeScheduler, jobId);
+  }
 
   async compensateWorkspaceMutation(before: WorkboardCard, after: WorkboardCard): Promise<void> {
     await this.enqueueMutation(async () => {
@@ -159,38 +165,6 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
     const base = Math.max(0, Math.trunc(now)) * 1000;
     this.lastNotificationSequence = Math.max(this.lastNotificationSequence + 1, base);
     return this.lastNotificationSequence;
-  }
-
-  async stats(input: WorkboardListOptions = {}, now = Date.now()): Promise<WorkboardStatsResult> {
-    const boardId = normalizeBoardId(input.boardId);
-    const aggregates = await this.store.listStatsAggregates(boardId);
-    const byStatus: Partial<Record<WorkboardStatus, number>> = {};
-    const byAgent = Object.create(null) as Record<string, number>;
-    let oldestReadyAt: number | undefined;
-    let updatedAt: number | undefined;
-    let archived = 0;
-    let total = 0;
-    for (const aggregate of aggregates) {
-      byStatus[aggregate.status] = (byStatus[aggregate.status] ?? 0) + aggregate.total;
-      const agentId = aggregate.agentId ?? "(default)";
-      byAgent[agentId] = (byAgent[agentId] ?? 0) + aggregate.total;
-      total += aggregate.total;
-      archived += aggregate.archived;
-      if (aggregate.oldestReadyAt !== undefined) {
-        oldestReadyAt = Math.min(oldestReadyAt ?? aggregate.oldestReadyAt, aggregate.oldestReadyAt);
-      }
-      updatedAt = Math.max(updatedAt ?? 0, aggregate.updatedAt);
-    }
-    return {
-      id: boardId ?? "all",
-      total,
-      active: total - archived,
-      archived,
-      byStatus,
-      byAgent,
-      ...(oldestReadyAt ? { oldestReadyAgeMs: Math.max(0, now - oldestReadyAt) } : {}),
-      ...(updatedAt ? { updatedAt } : {}),
-    };
   }
 
   async get(id: string): Promise<WorkboardCard | undefined> {
@@ -502,6 +476,15 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
         preserveProofId: options.preserveProofId,
       }));
     }
+    // The one owner of "wake state exists only on a blocked, unarchived card", whichever path
+    // moved the card. Archiving counts: a wake must not fire for a card nobody is working.
+    const retiresWake =
+      options.wake === null || status !== "blocked" || Boolean(metadata.archivedAt);
+    if (options.wake) {
+      metadata = { ...metadata, ...options.wake };
+    } else if (retiresWake) {
+      metadata = { ...metadata, blockedOn: undefined, wakeAt: undefined, wakeJobId: undefined };
+    }
     const automationPatch: Record<string, unknown> = {};
     for (const key of [
       "tenant",
@@ -608,6 +591,10 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
     }
     if (updated) {
       await this.deleteDetachedAttachments(existing, next);
+      const retiredWakeJobId = !options.wake && retiresWake ? existing.metadata?.wakeJobId : null;
+      if (retiredWakeJobId) {
+        await this.cancelWake(retiredWakeJobId);
+      }
       return next;
     }
     const current = await this.get(next.id);
@@ -649,6 +636,7 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
   ): Promise<WorkboardDeleteResult> {
     return await this.enqueueMutation(async () => {
       const cardId = id.trim();
+      const wakeJobId = (await this.get(cardId))?.metadata?.wakeJobId;
       const deleted =
         options.expectedUpdatedAt === undefined
           ? await this.store.delete(cardId)
@@ -661,6 +649,9 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
           }
         }
         return { deleted: false };
+      }
+      if (wakeJobId) {
+        await this.cancelWake(wakeJobId);
       }
       for (const entry of await this.subscriptionStore.entries()) {
         if (entry.value.subscription.cardId === cardId) {

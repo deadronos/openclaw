@@ -18,6 +18,7 @@ import { resolveWorkboardSqliteWorkerModuleUrl } from "./src/sqlite-store-paths.
 import { registerWorkboardStoreLifecycle } from "./src/store-lifecycle.js";
 import { strictObject } from "./src/tools-card-mutations.js";
 import { createWorkboardTools } from "./src/tools.js";
+import { createWorkboardWakeService } from "./src/wake-scheduler.js";
 import {
   guardWorkboardToolsForWorkspaceAccess,
   WORKBOARD_CARD_TOOL_NAMES,
@@ -152,6 +153,9 @@ export default definePluginEntry({
       store,
     });
     resourceServices.push(automationNudge);
+    const wakes = createWorkboardWakeService({ currentConfig: () => api.runtime.config.current() });
+    store.wakeScheduler = wakes.scheduler;
+    resourceServices.push(wakes);
     const sessionsBoard = createWorkboardSessionsBoardService({
       store,
       gateway: api.runtime.gateway,
@@ -188,7 +192,7 @@ export default definePluginEntry({
     }
     registerWorkboardGatewayMethods({ api, store, sessionsBoard });
     registerWorkboardCommand({ api, store });
-    for (const service of [changeEvents, automationNudge, sessionsBoard, lifecycleSync]) {
+    for (const service of [changeEvents, automationNudge, wakes, sessionsBoard, lifecycleSync]) {
       api.registerService(service);
     }
     api.on("gateway_start", (_event, context) => lifecycleSync.onGatewayStart(context.abortSignal));

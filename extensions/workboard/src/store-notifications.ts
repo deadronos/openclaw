@@ -10,7 +10,8 @@ import type {
   WorkboardNotificationListOptions,
   WorkboardNotificationSubscribeInput,
 } from "./store-inputs.js";
-import { normalizeBoardId, normalizeNotificationSubscription } from "./store-normalizers.js";
+import { normalizeBoardId } from "./store-normalizers.js";
+import { normalizeNotificationSubscription } from "./store-notification-normalizers.js";
 import { WorkboardWorkflowStore } from "./store-workflow.js";
 
 export class WorkboardNotificationStore extends WorkboardWorkflowStore {

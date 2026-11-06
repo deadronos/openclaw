@@ -4,6 +4,7 @@ import type {
   WorkboardDiagnostic,
   WorkboardEvent,
   WorkboardLaunchState,
+  WorkboardMetadata,
   WorkboardWorkspace,
   WorkboardWorkspaceAccess,
 } from "@openclaw/workboard-contract";
@@ -53,6 +54,11 @@ export type WorkboardUpdateCardOptions = {
   ownerSlot?: { ownerId: string; now: number };
   preserveProofId?: string;
   preserveNotificationId?: string;
+  /**
+   * Owned wake state. An object replaces the fields and the caller owns the job; null clears them
+   * and cancels the job even when the card stays blocked.
+   */
+  wake?: Pick<WorkboardMetadata, "blockedOn" | "wakeAt" | "wakeJobId"> | null;
 };
 export type WorkboardCommentInput = { body?: unknown };
 export type WorkboardLinkInput = {
@@ -137,6 +143,8 @@ export type WorkboardAcceptInput = {
 };
 export type WorkboardBlockInput = WorkboardMutationScope & {
   reason?: unknown;
+  blockedOn?: unknown;
+  wakeInMinutes?: unknown;
 };
 export type WorkboardDispatchResult = {
   promoted: WorkboardCard[];

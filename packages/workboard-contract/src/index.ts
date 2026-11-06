@@ -405,6 +405,13 @@ export type WorkboardReviewState = {
   at: number;
 };
 
+export const WORKBOARD_BLOCKER_KINDS = ["card", "person", "artifact"] as const;
+
+export type WorkboardBlockedOn = {
+  kind: (typeof WORKBOARD_BLOCKER_KINDS)[number];
+  value: string;
+};
+
 export type WorkboardMetadata = {
   attempts?: WorkboardRunAttempt[];
   comments?: WorkboardComment[];
@@ -428,6 +435,9 @@ export type WorkboardMetadata = {
   acceptance?: WorkboardAcceptance;
   acceptedBy?: string;
   acceptedAt?: number;
+  blockedOn?: WorkboardBlockedOn;
+  wakeAt?: number;
+  wakeJobId?: string;
 };
 
 export type WorkboardCard = {
