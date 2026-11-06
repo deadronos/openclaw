@@ -94,6 +94,10 @@ function expectNoWakeMetadata(card: { metadata?: Record<string, unknown> } | und
   expect(card?.metadata?.wakeJobId).toBeUndefined();
 }
 
+// Two callers reach the replace path: the agent tool `workboard_block` (claimed, and the
+// claim already cleared the wake, so it retires then arms) and `workboard.cards.block`
+// (gateway, null scope, no claim guard - the operator path that can update in place).
+// Tests that pass a null scope model the operator path and say so in their titles.
 describe("Workboard blocker wakes", () => {
   it("arms one wake naming the missing-file blocker on the owner's lane, and resolving removes it", async () => {
     const { store, cron, jobs } = setup();
@@ -133,7 +137,7 @@ describe("Workboard blocker wakes", () => {
     expectNoWakeMetadata(await store.get(card.id));
   });
 
-  it("moves the wake in place on a second block, keeping the same job", async () => {
+  it("operator re-block moves the wake in place, keeping the same job", async () => {
     const { store, cron, jobs } = setup();
     const card = await blockedWithWake(store);
     const jobId = card.metadata!.wakeJobId!;
@@ -159,7 +163,7 @@ describe("Workboard blocker wakes", () => {
     expect(moved.delivery).toMatchObject({ channel: "discord", threadId: LANE });
   });
 
-  it("falls back to cancel and arm when the update fails", async () => {
+  it("operator re-block falls back to cancel and arm when the update fails", async () => {
     const { store, cron, jobs } = setup();
     const card = await blockedWithWake(store);
     const first = card.metadata!.wakeJobId!;
@@ -175,7 +179,7 @@ describe("Workboard blocker wakes", () => {
     );
   });
 
-  it("never stacks a second wake when neither update nor remove works", async () => {
+  it("operator re-block never stacks when neither update nor remove works", async () => {
     const { store, cron, jobs } = setup();
     const card = await blockedWithWake(store);
     const first = card.metadata!.wakeJobId!;
@@ -197,7 +201,7 @@ describe("Workboard blocker wakes", () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining(`(job ${first})`));
   });
 
-  it("never arms a second wake around a job that is still running", async () => {
+  it("operator re-block never arms a second wake around a running job", async () => {
     const { store, cron, jobs } = setup();
     const card = await blockedWithWake(store);
     const first = card.metadata!.wakeJobId!;
@@ -214,7 +218,7 @@ describe("Workboard blocker wakes", () => {
     expect(again.metadata?.comments?.at(-1)?.body).toContain("Wake not replaced");
   });
 
-  it("keeps the old wake when this process has no scheduler", async () => {
+  it("operator re-block keeps the old wake when this process has no scheduler", async () => {
     const { store, cron, jobs } = setup();
     const card = await blockedWithWake(store);
     store.wakeScheduler = undefined;
@@ -227,7 +231,7 @@ describe("Workboard blocker wakes", () => {
     expect(again.metadata?.comments?.at(-1)?.body).toContain("Wake not replaced");
   });
 
-  it("keeps the old wake when a re-block has no owner to target", async () => {
+  it("operator re-block keeps the old wake with no owner to target", async () => {
     const { store, cron } = setup();
     const card = await store.create({ title: "No agent", status: "running" });
     const scope = { ownerId: OWNER, token: "token-ownerless" };
@@ -242,7 +246,7 @@ describe("Workboard blocker wakes", () => {
     expect(again.metadata?.comments?.at(-1)?.body).toContain("Wake not replaced");
   });
 
-  it("does not remove an updated job when the card write loses", async () => {
+  it("operator re-block does not remove an updated job when the card write loses", async () => {
     const { store, jobs } = setup();
     const card = await blockedWithWake(store);
     vi.spyOn(
@@ -267,7 +271,7 @@ describe("Workboard blocker wakes", () => {
     expect(await cancelWorkboardWake(undefined, card.id, jobId)).toBe("failed");
   });
 
-  it("keeps the armed wake on a second block that requests none", async () => {
+  it("a claimless re-block that requests no wake keeps the armed one", async () => {
     const { store, cron, jobs } = setup();
     const card = await blockedWithWake(store);
 
