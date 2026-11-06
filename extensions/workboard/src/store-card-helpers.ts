@@ -16,6 +16,7 @@ import { isRecord, normalizeOptionalString } from "openclaw/plugin-sdk/string-co
 import { normalizeTimestamp } from "./store-coercion.js";
 import {
   BLOCKED_TOO_LONG_MS,
+  DEFAULT_CLAIM_TTL_MS,
   MAX_CARD_ATTEMPTS,
   MAX_CARD_COMMENTS,
   MAX_CARD_EVENTS,
@@ -26,6 +27,27 @@ import {
 } from "./store-constants.js";
 import type { WorkboardMutationScope } from "./store-inputs.js";
 import { capText, removeUndefinedMetadataFields } from "./store-normalizers.js";
+
+export const WORKBOARD_CARD_VIEWS = ["held", "overdue"] as const;
+export type WorkboardCardView = (typeof WORKBOARD_CARD_VIEWS)[number];
+
+/** held: blocked with a wake armed. overdue: a claim past its window. */
+export function cardMatchesView(
+  card: WorkboardCard,
+  view: WorkboardCardView,
+  now: number,
+): boolean {
+  if (view === "held") {
+    return card.status === "blocked" && Boolean(card.metadata?.wakeJobId);
+  }
+  const claim = card.metadata?.claim;
+  if (!claim) {
+    return false;
+  }
+  return claim.expiresAt === undefined
+    ? now - claim.lastHeartbeatAt > DEFAULT_CLAIM_TTL_MS
+    : claim.expiresAt < now;
+}
 
 export function compareCards(left: WorkboardCard, right: WorkboardCard): number {
   if (left.status !== right.status) {

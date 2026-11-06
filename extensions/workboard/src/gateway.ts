@@ -22,6 +22,7 @@ import { redactClaimToken, redactDispatchResult } from "./card-redaction.js";
 import { dispatchAndStartWorkboardCards } from "./dispatcher.js";
 import type { WorkboardSessionsBoardService } from "./sessions-board.js";
 import { resolveWorkboardSqliteWorkerModuleUrl } from "./sqlite-store-paths.js";
+import { cardMatchesView, WORKBOARD_CARD_VIEWS } from "./store-card-helpers.js";
 import { registerWorkboardStoreLifecycle } from "./store-lifecycle.js";
 import { assertSupportedMetadataKeys } from "./store-metadata-keys.js";
 import { WorkboardCardConflictError, WorkboardStore } from "./store.js";
@@ -148,6 +149,7 @@ const READ_SCOPE = "operator.read" as const;
 const WRITE_SCOPE = "operator.write" as const;
 const cardsListFilterSchema = z.object({
   sessionKey: z.string().trim().min(1).optional(),
+  view: z.enum(WORKBOARD_CARD_VIEWS).optional(),
   after: z
     .object({
       position: z.number().finite(),
@@ -435,8 +437,14 @@ export function registerWorkboardGatewayMethods(params: {
   };
 
   register("workboard.cards.list", READ_SCOPE, async ({ params: input }) => {
-    const { sessionKey, after } = cardsListFilterSchema.parse(input);
+    const { sessionKey, after, view } = cardsListFilterSchema.parse(input);
     const result = await store.listCards(input.boardId, sessionKey, after);
+    if (view) {
+      // Filters one page, so keep following nextCursor. Overdue depends on the clock, which the
+      // revision does not cover, so view reads never answer "unchanged".
+      const now = Date.now();
+      return { ...result, cards: result.cards.filter((card) => cardMatchesView(card, view, now)) };
+    }
     const since = input.sinceRevision;
     return after === undefined &&
       isRecord(since) &&

@@ -13,6 +13,7 @@ import {
   isFutureDateTimestampMs,
   resolveOptionalIntegerOption,
 } from "openclaw/plugin-sdk/number-runtime";
+import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
 import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 import { isRecord, normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import {
@@ -60,6 +61,14 @@ import {
 } from "./store-normalizers.js";
 import { WorkboardPromoteStore } from "./store-promote.js";
 import { finishRun } from "./store-status-write.js";
+import { normalizeBlockedOn, readWakeInMinutes } from "./store-wake-normalizers.js";
+import {
+  armOrReplaceWorkboardWake,
+  DEFAULT_WORKBOARD_WAKE_MINUTES,
+  isWorkboardWakeLive,
+} from "./store-wake-support.js";
+
+const log = createSubsystemLogger("workboard");
 
 class WorkboardClaimRefusedError extends Error {
   constructor(message: string) {
@@ -169,6 +178,7 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         {
           expectedUpdatedAt: guarded.updatedAt,
           ownerSlot: { ownerId, now },
+          wake: null,
         },
       );
       return { card, token };
@@ -388,6 +398,8 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
     scope: WorkboardMutationScope | null | undefined = input,
     options: { clearExecutionAssociation?: boolean } = {},
   ): Promise<WorkboardCard> {
+    const requestedBlocker = normalizeBlockedOn(input.blockedOn);
+    const wakeInMinutes = readWakeInMinutes(input.wakeInMinutes);
     return await this.enqueueMutation(async () => {
       const existing = await this.requireCard(id);
       assertCanMutateClaimedCard(existing, scope === null ? undefined : scope);
@@ -395,10 +407,98 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       const reason =
         normalizeBoundedString(input.reason, undefined, 2000, "block reason") ??
         "Workboard card blocked.";
-      return await this.updateCard(
-        existing,
-        this.buildBlockedCardPatch(existing, reason, now, options),
-      );
+      const patch = this.buildBlockedCardPatch(existing, reason, now, options);
+      const blockedOn = requestedBlocker ?? existing.metadata?.blockedOn;
+      const previousJobId = existing.metadata?.wakeJobId;
+      // A block that asks for no wake keeps a live one. If that job already fired, keeping its id
+      // would leave the card blocked with no wake coming, so arm another at the same window.
+      const wakeMinutes =
+        wakeInMinutes ??
+        (previousJobId &&
+        !(await isWorkboardWakeLive(this.wakeScheduler, existing.id, previousJobId))
+          ? (existing.metadata?.wakeInMinutes ?? DEFAULT_WORKBOARD_WAKE_MINUTES)
+          : undefined);
+      if (wakeMinutes === undefined) {
+        // Accepted edge: a new blocker without a new wake leaves an armed job's message stale.
+        return await this.updateCard(
+          existing,
+          patch,
+          requestedBlocker
+            ? {
+                wake: {
+                  blockedOn,
+                  wakeAt: existing.metadata?.wakeAt,
+                  wakeJobId: previousJobId,
+                  wakeInMinutes: existing.metadata?.wakeInMinutes,
+                },
+              }
+            : {},
+        );
+      }
+      const wakeAt = addWorkboardDurationMs(now, wakeMinutes * 60_000);
+      let scheduled: { jobId: string; replaced: boolean } | undefined;
+      try {
+        // The claim is cleared by this block, so read the owner from the card as it stands.
+        const ownerId =
+          existing.metadata?.claim?.ownerId ??
+          existing.agentId ??
+          normalizeOptionalString(scope?.ownerId);
+        // With no owner to target, a job that already exists stays as it is rather than orphaned.
+        scheduled = ownerId
+          ? await armOrReplaceWorkboardWake(this.wakeScheduler, previousJobId, {
+              cardId: existing.id,
+              title: existing.title,
+              ownerId,
+              blockedOn,
+              reason,
+              at: wakeAt,
+            })
+          : previousJobId
+            ? { jobId: previousJobId, replaced: false }
+            : undefined;
+        if (!scheduled) {
+          throw new Error("the card has no owner to wake");
+        }
+      } catch (error) {
+        // The block itself stands; the card records that no wake is coming.
+        log.warn(`workboard wake not scheduled for card ${existing.id}: ${String(error)}`);
+        patch.metadata = {
+          ...patch.metadata,
+          comments: appendComment(
+            patch.metadata.comments,
+            `Wake not scheduled: ${error instanceof Error ? error.message : String(error)}`,
+            now,
+          ),
+        };
+      }
+      const replaced = scheduled?.replaced === true;
+      if (scheduled && !replaced) {
+        const oldAt = existing.metadata?.wakeAt;
+        patch.metadata = {
+          ...patch.metadata,
+          comments: appendComment(
+            patch.metadata.comments,
+            `Wake not replaced: job ${scheduled.jobId} stays live and may still fire at the old time${oldAt ? ` (${new Date(oldAt).toISOString()})` : ""}.`,
+            now,
+          ),
+        };
+      }
+      try {
+        return await this.updateCard(existing, patch, {
+          wake: {
+            blockedOn,
+            wakeJobId: scheduled?.jobId,
+            wakeAt: replaced ? wakeAt : scheduled && existing.metadata?.wakeAt,
+            wakeInMinutes: replaced ? wakeMinutes : scheduled && existing.metadata?.wakeInMinutes,
+          },
+        });
+      } catch (error) {
+        // Only a job this block created is unreferenced; an updated one is still the card's.
+        if (scheduled && scheduled.jobId !== previousJobId) {
+          await this.cancelWake(existing.id, scheduled.jobId);
+        }
+        throw error;
+      }
     });
   }
 
@@ -438,7 +538,7 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       return await this.updateCard(
         existing,
         { agentId, status, metadata },
-        { enforceStatusHolds: true },
+        { enforceStatusHolds: true, wake: null },
       );
     });
   }

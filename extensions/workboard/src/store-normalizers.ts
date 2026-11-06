@@ -29,8 +29,6 @@ import {
   type WorkboardLaunchState,
   type WorkboardMetadata,
   type WorkboardNotification,
-  type WorkboardNotificationKind,
-  type WorkboardNotificationSubscription,
   type WorkboardPriority,
   type WorkboardProof,
   type WorkboardRunAttempt,
@@ -50,6 +48,7 @@ import { definedFields } from "../record-fields.js";
 import {
   normalizeBoundedString,
   normalizeEnumValue,
+  normalizeRunId,
   normalizeTimestamp,
 } from "./store-coercion.js";
 import {
@@ -64,16 +63,16 @@ import {
   MAX_CARD_NOTIFICATIONS,
   MAX_CARD_PROOF,
   MAX_CARD_WORKER_LOGS,
-  MAX_RUN_ID_LENGTH,
 } from "./store-constants.js";
 import type {
   WorkboardAttachmentInput,
-  WorkboardNotificationSubscribeInput,
   WorkboardProofInput,
   WorkboardWorkerLogInput,
 } from "./store-inputs.js";
 import { normalizeReviewState } from "./store-review-normalizer.js";
 import { isAbsoluteWorkspacePath } from "./workspace-path.js";
+
+export { normalizeRunId } from "./store-coercion.js";
 
 export function normalizeBoardId(value: unknown, fallback?: string): string | undefined {
   const raw = normalizeBoundedString(value, fallback, 80, "board id");
@@ -89,53 +88,6 @@ export function normalizeBoardId(value: unknown, fallback?: string): string | un
 
 export function normalizeBoardIdRequired(value: unknown): string {
   return normalizeBoardId(value) ?? "default";
-}
-
-function normalizeNotificationKinds(value: unknown): WorkboardNotificationKind[] | undefined {
-  if (value == null) {
-    return undefined;
-  }
-  const entries = typeof value === "string" ? value.split(",") : Array.isArray(value) ? value : [];
-  const kinds: WorkboardNotificationKind[] = [];
-  for (const entry of entries) {
-    const kind = typeof entry === "string" ? entry.trim() : "";
-    if (!WORKBOARD_NOTIFICATION_KINDS.includes(kind as WorkboardNotificationKind)) {
-      throw new Error(
-        `notification kind must be one of: ${WORKBOARD_NOTIFICATION_KINDS.join(", ")}.`,
-      );
-    }
-    const notificationKind = kind as WorkboardNotificationKind;
-    if (!kinds.includes(notificationKind)) {
-      kinds.push(notificationKind);
-    }
-  }
-  return kinds.length ? kinds : undefined;
-}
-
-export function normalizeNotificationSubscription(
-  input: WorkboardNotificationSubscribeInput,
-): WorkboardNotificationSubscription {
-  const now = Date.now();
-  const boardId = normalizeBoardId(input.boardId) ?? "default";
-  const cardId = normalizeBoundedString(input.cardId, undefined, 120, "card id");
-  const sessionKey = normalizeBoundedString(input.sessionKey, undefined, 240, "session key");
-  const runId = normalizeRunId(input.runId);
-  const target = normalizeBoundedString(input.target, undefined, 240, "notification target");
-  if (!cardId && !sessionKey && !runId && !target) {
-    throw new Error("notification subscription needs cardId, sessionKey, runId, or target.");
-  }
-  const eventKinds = normalizeNotificationKinds(input.eventKinds);
-  return definedFields({
-    id: randomUUID(),
-    boardId,
-    cardId,
-    sessionKey,
-    runId,
-    target,
-    eventKinds,
-    createdAt: now,
-    updatedAt: now,
-  });
 }
 
 export function normalizeTitle(value: unknown): string {
@@ -158,10 +110,6 @@ export function normalizeNotes(value: unknown): string | undefined {
     throw new Error("notes must be 4000 characters or fewer.");
   }
   return notes;
-}
-
-export function normalizeRunId(value: unknown): string | undefined {
-  return normalizeBoundedString(value, undefined, MAX_RUN_ID_LENGTH, "run id");
 }
 
 export function capText(value: string | undefined, max: number): string | undefined {
@@ -853,6 +801,11 @@ export function normalizeMetadata(
     acceptedAt: normalizeTimestamp(record.acceptedAt, fallback.acceptedAt ?? 0) || undefined,
     failureCount:
       resolveOptionalIntegerOption(record.failureCount, { min: 0 }) ?? fallback.failureCount,
+    // Never read from the record: only updateCard's owned `wake` option changes these.
+    blockedOn: fallback.blockedOn,
+    wakeAt: fallback.wakeAt,
+    wakeJobId: fallback.wakeJobId,
+    wakeInMinutes: fallback.wakeInMinutes,
   };
   return trimMetadataToBudget(normalized, options);
 }

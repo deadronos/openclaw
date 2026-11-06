@@ -3,7 +3,18 @@ import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 
 const SUPPORTED_METADATA_KEYS: Record<
   // Acceptance and closure verdicts are server-owned: only accept()/complete() may write them.
-  Exclude<keyof WorkboardMetadata, "acceptance" | "acceptedAt" | "acceptedBy" | "closureReason">,
+  // Wake state is too: a client-supplied wakeJobId would make the card cancel someone else's job.
+  Exclude<
+    keyof WorkboardMetadata,
+    | "acceptance"
+    | "acceptedAt"
+    | "acceptedBy"
+    | "closureReason"
+    | "blockedOn"
+    | "wakeAt"
+    | "wakeJobId"
+    | "wakeInMinutes"
+  >,
   true
 > = {
   archivedAt: true,

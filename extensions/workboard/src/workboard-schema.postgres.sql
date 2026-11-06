@@ -187,6 +187,10 @@ CREATE TABLE "workboard_cards" (
   "acceptance" text COLLATE "C",
   "accepted_by" text COLLATE "C",
   "accepted_at" bigint,
+  "blocked_on_json" text COLLATE "C",
+  "wake_at" bigint,
+  "wake_job_id" text COLLATE "C",
+  "wake_in_minutes" bigint,
   PRIMARY KEY ("id")
 );
 
