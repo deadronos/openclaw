@@ -17,6 +17,8 @@ export type WorkboardWakeScheduler = {
   arm: (request: WorkboardWakeRequest) => Promise<string>;
   /** Removing a job that no longer exists is a no-op. */
   cancel: (jobId: string) => Promise<void>;
+  /** Moves an existing job to this request's schedule and payload. Rejects if it cannot. */
+  update: (jobId: string, request: WorkboardWakeRequest) => Promise<void>;
   /** False once the job has fired and gone, or can no longer fire. Rejects when unreachable. */
   isLive: (jobId: string) => Promise<boolean>;
 };
@@ -95,6 +97,15 @@ export function createWorkboardWakeService(params: {
     }
     return { owner, cron };
   };
+  const buildJob = (request: WorkboardWakeRequest, owner: WakeOwner) => {
+    const lane = resolveWorkboardOwnerLane(params.currentConfig(), request.ownerId);
+    if (!lane) {
+      owner.logger.warn(
+        `workboard wake for card ${request.cardId}: no Discord lane bound to ${request.ownerId}; the wake reaches the session only`,
+      );
+    }
+    return buildWorkboardWakeJob(request, lane);
+  };
   return {
     id: "workboard-wake",
     start(ctx) {
@@ -110,17 +121,16 @@ export function createWorkboardWakeService(params: {
     scheduler: {
       arm: async (request) => {
         const { owner, cron } = requireCron();
-        const lane = resolveWorkboardOwnerLane(params.currentConfig(), request.ownerId);
-        if (!lane) {
-          owner.logger.warn(
-            `workboard wake for card ${request.cardId}: no Discord lane bound to ${request.ownerId}; the wake reaches the session only`,
-          );
-        }
-        const job = await cron.add(buildWorkboardWakeJob(request, lane));
+        const job = await cron.add(buildJob(request, owner));
         if (!isRecord(job) || typeof job.id !== "string") {
           throw new Error("the scheduler did not return a job id");
         }
         return job.id;
+      },
+      update: async (jobId, request) => {
+        const { owner, cron } = requireCron();
+        // Safe on a running job: its run continues and the new schedule outlives it.
+        await cron.update(jobId, buildJob(request, owner));
       },
       cancel: async (jobId) => {
         const { cron } = requireCron();

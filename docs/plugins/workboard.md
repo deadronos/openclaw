@@ -305,7 +305,9 @@ and announces it to the Discord channel or thread bound to that agent in
 `bindings`. With no such binding the job still runs and only reaches the session;
 if no job can be created, the block stands and a comment on the card says so.
 
-Blocking again with `wakeInMinutes` replaces the armed wake. Blocking again without
+Blocking again with `wakeInMinutes` moves the armed job to the new time. If it can be
+neither moved nor removed, it stays live and a comment on the card says the wake was
+not replaced, so a card never holds two wakes. Blocking again without
 it keeps a wake that is still scheduled; if that wake was already consumed, a new one
 is armed at the card's recorded interval (60 minutes when none was recorded). Any path that takes
 the card out of `blocked`, plus claiming, reassigning, archiving, or deleting it,
