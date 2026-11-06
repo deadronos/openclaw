@@ -69,8 +69,10 @@ function setup(config: { bindings?: typeof bindings } = { bindings }) {
   };
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
   const service = createWorkboardWakeService({ currentConfig: () => config });
-  service.start({ logger, getCron: () => cron } as never);
-  stopService = service.stop;
+  void service.start({ logger, getCron: () => cron } as never);
+  stopService = () => {
+    Promise.resolve(service.stop()).catch(() => undefined);
+  };
   store.wakeScheduler = service.scheduler;
   return { store, cron, jobs, logger, scheduler: service.scheduler };
 }

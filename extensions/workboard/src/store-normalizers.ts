@@ -51,7 +51,6 @@ import {
   normalizeRunId,
   normalizeTimestamp,
 } from "./store-coercion.js";
-export { normalizeRunId } from "./store-coercion.js";
 import {
   MAX_ATTACHMENT_BYTES,
   MAX_CARD_ARTIFACTS,
@@ -72,6 +71,8 @@ import type {
 } from "./store-inputs.js";
 import { normalizeReviewState } from "./store-review-normalizer.js";
 import { isAbsoluteWorkspacePath } from "./workspace-path.js";
+
+export { normalizeRunId } from "./store-coercion.js";
 
 export function normalizeBoardId(value: unknown, fallback?: string): string | undefined {
   const raw = normalizeBoundedString(value, fallback, 80, "board id");
