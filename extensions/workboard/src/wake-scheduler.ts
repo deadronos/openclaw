@@ -15,13 +15,19 @@ export type WorkboardWakeRequest = {
 export type WorkboardWakeScheduler = {
   /** Creates one job and returns its id. Rejects when no job could be created. */
   arm: (request: WorkboardWakeRequest) => Promise<string>;
-  /** Removing a job that no longer exists is a no-op. */
-  cancel: (jobId: string) => Promise<void>;
+  /**
+   * Removes a job. `removed` covers a job that no longer exists; `running` means it was
+   * deliberately left alone so an agent cannot cancel the run that woke it. Rejects on failure.
+   */
+  cancel: (jobId: string) => Promise<WorkboardWakeCancelOutcome>;
   /** Moves an existing job to this request's schedule and payload. Rejects if it cannot. */
   update: (jobId: string, request: WorkboardWakeRequest) => Promise<void>;
   /** False once the job has fired and gone, or can no longer fire. Rejects when unreachable. */
   isLive: (jobId: string) => Promise<boolean>;
 };
+
+/** `running` is not success: the job is still there and will still fire. */
+export type WorkboardWakeCancelOutcome = "removed" | "running";
 
 type WakeOwner = Pick<Parameters<OpenClawPluginService["start"]>[0], "logger" | "getCron">;
 
@@ -137,10 +143,14 @@ export function createWorkboardWakeService(params: {
         const job = (await cron.list({ includeDisabled: true })).find(({ id }) => id === jobId);
         // A woken agent resolving its own card lands here while its job runs. Removal would be
         // recorded as an operator cancellation of that run; the one-shot deletes itself anyway.
-        if (!job || job.state?.runningAtMs !== undefined) {
-          return;
+        if (!job) {
+          return "removed" as const;
+        }
+        if (job.state?.runningAtMs !== undefined) {
+          return "running" as const;
         }
         await cron.remove(jobId);
+        return "removed" as const;
       },
       isLive: async (jobId) => {
         const { cron } = requireCron();

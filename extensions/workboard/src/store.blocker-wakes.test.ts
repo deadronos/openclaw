@@ -197,6 +197,23 @@ describe("Workboard blocker wakes", () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining(`(job ${first})`));
   });
 
+  it("never arms a second wake around a job that is still running", async () => {
+    const { store, cron, jobs } = setup();
+    const card = await blockedWithWake(store);
+    const first = card.metadata!.wakeJobId!;
+    // A running job is left alone on purpose, so an update is the only way to move it.
+    jobs.get(first)!.state = { runningAtMs: Date.now() };
+    cron.update.mockRejectedValueOnce(new Error("update refused"));
+
+    const again = await store.block(card.id, { wakeInMinutes: 5 }, null);
+
+    expect(cron.add).toHaveBeenCalledTimes(1);
+    expect([...jobs.keys()]).toEqual([first]);
+    expect(again.status).toBe("blocked");
+    expect(again.metadata).toMatchObject({ wakeJobId: first, wakeInMinutes: 30 });
+    expect(again.metadata?.comments?.at(-1)?.body).toContain("Wake not replaced");
+  });
+
   it("keeps the old wake when this process has no scheduler", async () => {
     const { store, cron, jobs } = setup();
     const card = await blockedWithWake(store);
@@ -238,16 +255,16 @@ describe("Workboard blocker wakes", () => {
     expect([...jobs.keys()]).toEqual([card.metadata?.wakeJobId]);
   });
 
-  it("reports whether a cancel removed the job", async () => {
+  it("reports how a cancel ended instead of collapsing it to success", async () => {
     const { store, cron, scheduler } = setup();
     const card = await blockedWithWake(store);
     const jobId = card.metadata!.wakeJobId!;
 
     cron.remove.mockRejectedValueOnce(new Error("remove refused"));
-    expect(await cancelWorkboardWake(scheduler, card.id, jobId)).toBe(false);
+    expect(await cancelWorkboardWake(scheduler, card.id, jobId)).toBe("failed");
     expect(warn.mock.calls.at(-1)?.[0]).toContain(`card ${card.id} (job ${jobId})`);
-    expect(await cancelWorkboardWake(scheduler, card.id, jobId)).toBe(true);
-    expect(await cancelWorkboardWake(undefined, card.id, jobId)).toBe(false);
+    expect(await cancelWorkboardWake(scheduler, card.id, jobId)).toBe("removed");
+    expect(await cancelWorkboardWake(undefined, card.id, jobId)).toBe("failed");
   });
 
   it("keeps the armed wake on a second block that requests none", async () => {
