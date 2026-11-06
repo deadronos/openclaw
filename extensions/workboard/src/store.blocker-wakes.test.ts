@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawPluginApi } from "../api.js";
 import { registerWorkboardGatewayMethods } from "./gateway.js";
 import { fakeClock } from "./store-family.test-support.js";
+import { cancelWorkboardWake } from "./store-wake-support.js";
 import type { WorkboardStore } from "./store.js";
 import { createGatewayMethodCapture } from "./test/gateway-method-capture.js";
 import { createKernelStores } from "./test/sqlite-kernel.js";
@@ -56,7 +57,14 @@ function setup(config: { bindings?: typeof bindings } = { bindings }) {
     }),
     remove: vi.fn(async (id: string) => ({ removed: jobs.delete(id) })),
     list: vi.fn(async () => [...jobs.values()]),
-    update: vi.fn(),
+    update: vi.fn(async (id: string, patch: Omit<StoredJob, "id">) => {
+      const job = jobs.get(id);
+      if (!job) {
+        throw new Error(`unknown cron job id: ${id}`);
+      }
+      jobs.set(id, { ...job, ...patch });
+      return jobs.get(id);
+    }),
     removeStaleJobFamily: vi.fn(),
   };
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
@@ -123,19 +131,121 @@ describe("Workboard blocker wakes", () => {
     expectNoWakeMetadata(await store.get(card.id));
   });
 
-  it("replaces the wake on a second block instead of arming another", async () => {
+  it("moves the wake in place on a second block, keeping the same job", async () => {
+    const { store, cron, jobs } = setup();
+    const card = await blockedWithWake(store);
+    const jobId = card.metadata!.wakeJobId!;
+    const firstAt = jobs.get(jobId)!.schedule.at;
+    const newFile = "/tmp/workboard-fixtures/other.pdf";
+
+    const again = await store.block(
+      card.id,
+      { wakeInMinutes: 5, blockedOn: { kind: "artifact", value: newFile } },
+      null,
+    );
+
+    expect(cron.update).toHaveBeenCalledTimes(1);
+    expect(cron.add).toHaveBeenCalledTimes(1);
+    expect(cron.remove).not.toHaveBeenCalled();
+    expect([...jobs.keys()]).toEqual([jobId]);
+    expect(again.metadata?.wakeJobId).toBe(jobId);
+    const moved = jobs.get(jobId)!;
+    expect(moved.schedule.at).not.toBe(firstAt);
+    expect(Date.parse(moved.schedule.at)).toBe(again.metadata?.wakeAt);
+    expect(again.metadata?.wakeInMinutes).toBe(5);
+    expect(moved.payload.message).toContain(newFile);
+    expect(moved.delivery).toMatchObject({ channel: "discord", threadId: LANE });
+  });
+
+  it("falls back to cancel and arm when the update fails", async () => {
     const { store, cron, jobs } = setup();
     const card = await blockedWithWake(store);
     const first = card.metadata!.wakeJobId!;
+    cron.update.mockRejectedValueOnce(new Error("update refused"));
 
     const again = await store.block(card.id, { wakeInMinutes: 5 }, null);
 
     expect(jobs.has(first)).toBe(false);
+    expect(again.metadata?.wakeJobId).not.toBe(first);
     expect([...jobs.keys()]).toEqual([again.metadata?.wakeJobId]);
     expect(cron.remove.mock.invocationCallOrder[0]).toBeLessThan(
       cron.add.mock.invocationCallOrder[1]!,
     );
-    expect(again.metadata?.blockedOn).toEqual(blockedOn);
+  });
+
+  it("never stacks a second wake when neither update nor remove works", async () => {
+    const { store, cron, jobs } = setup();
+    const card = await blockedWithWake(store);
+    const first = card.metadata!.wakeJobId!;
+    cron.update.mockRejectedValueOnce(new Error("update refused"));
+    cron.remove.mockRejectedValueOnce(new Error("remove refused"));
+
+    const again = await store.block(card.id, { wakeInMinutes: 5 }, null);
+
+    expect(cron.add).toHaveBeenCalledTimes(1);
+    expect([...jobs.keys()]).toEqual([first]);
+    expect(again.status).toBe("blocked");
+    expect(again.metadata).toMatchObject({
+      wakeJobId: first,
+      wakeAt: card.metadata?.wakeAt,
+      wakeInMinutes: 30,
+    });
+    expect(again.metadata?.comments?.at(-1)?.body).toContain("Wake not replaced");
+    expect((await store.get(card.id))?.metadata?.wakeJobId).toBe(first);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(`(job ${first})`));
+  });
+
+  it("keeps the old wake when this process has no scheduler", async () => {
+    const { store, cron, jobs } = setup();
+    const card = await blockedWithWake(store);
+    store.wakeScheduler = undefined;
+
+    const again = await store.block(card.id, { wakeInMinutes: 5 }, null);
+
+    expect(cron.add).toHaveBeenCalledTimes(1);
+    expect(jobs.size).toBe(1);
+    expect(again.metadata?.wakeJobId).toBe(card.metadata?.wakeJobId);
+    expect(again.metadata?.comments?.at(-1)?.body).toContain("Wake not replaced");
+  });
+
+  it("keeps the old wake when a re-block has no owner to target", async () => {
+    const { store, cron } = setup();
+    const card = await store.create({ title: "No agent", status: "running" });
+    const scope = { ownerId: OWNER, token: "token-ownerless" };
+    await store.claim(card.id, scope);
+    const blocked = await store.block(card.id, { ...scope, wakeInMinutes: 30 });
+
+    const again = await store.block(card.id, { wakeInMinutes: 5 }, null);
+
+    expect(cron.add).toHaveBeenCalledTimes(1);
+    expect(cron.update).not.toHaveBeenCalled();
+    expect(again.metadata?.wakeJobId).toBe(blocked.metadata?.wakeJobId);
+    expect(again.metadata?.comments?.at(-1)?.body).toContain("Wake not replaced");
+  });
+
+  it("does not remove an updated job when the card write loses", async () => {
+    const { store, jobs } = setup();
+    const card = await blockedWithWake(store);
+    vi.spyOn(
+      store as never as { updateCard: () => Promise<never> },
+      "updateCard",
+    ).mockRejectedValue(new Error("write lost"));
+
+    await expect(store.block(card.id, { wakeInMinutes: 5 }, null)).rejects.toThrow("write lost");
+
+    expect([...jobs.keys()]).toEqual([card.metadata?.wakeJobId]);
+  });
+
+  it("reports whether a cancel removed the job", async () => {
+    const { store, cron, scheduler } = setup();
+    const card = await blockedWithWake(store);
+    const jobId = card.metadata!.wakeJobId!;
+
+    cron.remove.mockRejectedValueOnce(new Error("remove refused"));
+    expect(await cancelWorkboardWake(scheduler, card.id, jobId)).toBe(false);
+    expect(warn.mock.calls.at(-1)?.[0]).toContain(`card ${card.id} (job ${jobId})`);
+    expect(await cancelWorkboardWake(scheduler, card.id, jobId)).toBe(true);
+    expect(await cancelWorkboardWake(undefined, card.id, jobId)).toBe(false);
   });
 
   it("keeps the armed wake on a second block that requests none", async () => {
@@ -270,15 +380,17 @@ describe("Workboard blocker wakes", () => {
     expect(jobs.size).toBe(1);
   });
 
-  it("re-arms when the stored job can no longer fire", async () => {
+  it("re-enables a stored job that can no longer fire instead of arming another", async () => {
     const { store, cron, jobs } = setup();
     const card = await blockedWithWake(store);
-    jobs.get(card.metadata!.wakeJobId!)!.enabled = false;
+    const jobId = card.metadata!.wakeJobId!;
+    jobs.get(jobId)!.enabled = false;
 
     const again = await store.block(card.id, {}, null);
 
-    expect(cron.add).toHaveBeenCalledTimes(2);
-    expect([...jobs.keys()]).toEqual([again.metadata?.wakeJobId]);
+    expect(cron.add).toHaveBeenCalledTimes(1);
+    expect(again.metadata?.wakeJobId).toBe(jobId);
+    expect(jobs.get(jobId)!.enabled).toBe(true);
   });
 
   it("keeps the stored wake when the scheduler cannot say whether it is live", async () => {
