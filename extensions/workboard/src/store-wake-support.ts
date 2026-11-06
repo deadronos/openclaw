@@ -1,5 +1,9 @@
 import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
-import type { WorkboardWakeRequest, WorkboardWakeScheduler } from "./wake-scheduler.js";
+import type {
+  WorkboardWakeCancelOutcome,
+  WorkboardWakeRequest,
+  WorkboardWakeScheduler,
+} from "./wake-scheduler.js";
 
 const log = createSubsystemLogger("workboard");
 
@@ -16,24 +20,23 @@ export const DEFAULT_WORKBOARD_WAKE_MINUTES = 60;
 
 /**
  * A card write has already been decided, so a stale or unreachable job never fails it.
- * Returns true when the job is gone, false when it could not be removed.
+ * `running` is reported as itself: the job is still live, so callers must not treat it as gone.
  */
 export async function cancelWorkboardWake(
   scheduler: WorkboardWakeScheduler | undefined,
   cardId: string,
   jobId: string,
-): Promise<boolean> {
+): Promise<WorkboardWakeCancelOutcome | "failed"> {
   try {
     if (!scheduler) {
       throw new Error("no scheduler in this process");
     }
-    await scheduler.cancel(jobId);
-    return true;
+    return await scheduler.cancel(jobId);
   } catch (error) {
     log.warn(
       `workboard wake for card ${cardId} (job ${jobId}) was not cancelled and may still fire: ${String(error)}`,
     );
-    return false;
+    return "failed";
   }
 }
 
@@ -58,7 +61,9 @@ export async function armOrReplaceWorkboardWake(
       // Expected for a consumed wake, so only the cancel outcome below warrants a warning.
       log.info(`workboard wake ${previousJobId} was not updated in place: ${String(error)}`);
     }
-    if (!(await cancelWorkboardWake(scheduler, request.cardId, previousJobId))) {
+    const outcome = await cancelWorkboardWake(scheduler, request.cardId, previousJobId);
+    // A running job is still live, so arming here would leave two wakes for one card.
+    if (outcome !== "removed") {
       return { jobId: previousJobId, replaced: false };
     }
   }
